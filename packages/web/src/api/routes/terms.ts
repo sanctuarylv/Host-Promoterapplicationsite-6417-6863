@@ -155,15 +155,18 @@ export const offers = {
     const [o] = await db.select().from(crewOffers).where(eq(crewOffers.id, input.offerId)).limit(1);
     if (!o) throw new ORPCError("NOT_FOUND");
     if (o.status !== "issued") throw new ORPCError("PRECONDITION_FAILED", { message: "Only open offers can be cancelled." });
+    const [pre] = await db.select({ s: crewApplications.application_status }).from(crewApplications).where(eq(crewApplications.id, o.application_id)).limit(1);
+    // Check canonical writability BEFORE changing the offer, so a refused write can't strand it.
+    const writable = pre?.s === "offer_issued" ? await assertCanonicalWritable("Cancelling offers") : null;
     const res = await db
       .update(crewOffers)
       .set({ status: "cancelled", revision: o.revision + 1, updated_at: new Date(), response_note: input.reason })
-      .where(and(eq(crewOffers.id, o.id), eq(crewOffers.revision, input.revision)))
+      .where(and(eq(crewOffers.id, o.id), eq(crewOffers.revision, input.revision), eq(crewOffers.status, "issued")))
       .returning({ id: crewOffers.id });
     if (!res.length) throw new ORPCError("CONFLICT", { message: "The offer changed since you loaded it." });
     const [app] = await db.select().from(crewApplications).where(eq(crewApplications.id, o.application_id)).limit(1);
     if (app?.application_status === "offer_issued") {
-      const state = await assertCanonicalWritable("Cancelling offers");
+      const state = writable ?? (await assertCanonicalWritable("Cancelling offers"));
       await transition({ applicationId: app.id, to: "selected", expectedRevision: app.revision, actor: actorOf(context.principal), note: `Offer cancelled: ${input.reason}`, via: "offer_workflow", mode: state.mode });
     }
     await audit(db, actorOf(context.principal), { entityType: "offer", entityId: o.id, action: "offer.cancel", from: "issued", to: "cancelled", note: input.reason });

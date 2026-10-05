@@ -257,4 +257,4 @@ export const humanize = (s: string | null | undefined) => {
 /** Unknown is not zero: null renders as "Unknown". */
 export const countOrUnknown = (n: number | null | undefined) => (n === null || n === undefined ? "Unknown" : String(n));
 export const usd = (cents: number | null | undefined) =>
-  cents === null || cents === undefined ? "Not recorded" : (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  cents === null || cents === undefined ? "Not recorded" : (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 2 });

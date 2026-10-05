@@ -2,7 +2,7 @@ import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqli
 
 /**
  * Crew applications — local system of record + outbox for the future
- * Sanctuary Command Center integration (see docs/COMMAND_CENTER_INTEGRATION.md).
+ * Sanctuary Command Center integration (see docs/COMMAND_CENTER_CONTRACT_V2.md).
  * Column names follow the Command Center-facing snake_case data model.
  */
 export const crewApplications = sqliteTable(

@@ -140,6 +140,9 @@ export default function ApplyPage() {
       if (target) {
         setStepId(target.id);
         setErrors({ [badKey]: parsed.error.issues[0]!.message });
+      } else {
+        // Never fail silently: the applicant must always see why nothing happened.
+        setSubmitError("Some answers couldn't be accepted. Please review the earlier steps and try again.");
       }
       return;
     }

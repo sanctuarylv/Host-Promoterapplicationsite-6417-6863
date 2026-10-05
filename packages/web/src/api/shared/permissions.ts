@@ -121,6 +121,16 @@ function onlyDeptScoped(p: Principal, action: Action, eventId: string) {
   );
 }
 
+/**
+ * Whole-event visibility (every department's roster and names). `event.read`
+ * lists department_lead so a lead can open the events they work on, but a
+ * department lead's VIEW is always narrowed to their own departments — so the
+ * department-scoped memberships are excluded when deciding "full".
+ */
+export function canSeeWholeEvent(p: Principal, eventId: string): boolean {
+  return can({ ...p, memberships: p.memberships.filter((m) => m.role !== "department_lead") }, "event.read", { eventId });
+}
+
 export function requireCan(p: Principal, action: Action, scope: Scope = {}) {
   if (!can(p, action, scope)) throw new ORPCError("FORBIDDEN", { message: `Not permitted: ${action}` });
 }

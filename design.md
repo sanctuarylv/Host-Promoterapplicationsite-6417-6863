@@ -39,12 +39,26 @@ Display scale comes from size, tracking and case — not weight:
 
 ## Pages
 
-- `/crew` (and `/`) — landing: hero, choose your role, promoter challenge, why join, progression, FAQ-ish fine print, final CTA.
-- `/crew/apply?role=host|promoter|both` — full-screen multi-step application + success experience.
-- `/r/:code` — short referral link → redirects to `/crew?ref=CODE` (attribution captured first).
-- `/crew/admin` — protected applicant list + CSV export (access key, noindex).
+Public (Sanctuary LV Group, paid roles; candidate interest only, no pay promised):
+- `/crew` (and `/`): landing with hero, role choice, promoter challenge, why join, progression, `#pathways` (Group vs nonprofit), FAQ and a final CTA.
+- `/crew/apply?role=...`: full-screen multi-step application and success experience.
+- `/r/:code`: short referral link. It redirects to `/crew?ref=CODE` (attribution is captured first, last touch in sessionStorage and first touch in localStorage for 30 days).
+
+Separate nonprofit pathway:
+- `/serve`: the Sanctuary LV **nonprofit** Serve Team. It is unpaid, with its own form, table, consent version and statuses. It is never mixed with paid Group applications.
+
+Signed in:
+- `/sign-in`: Better Auth email/password (managed Google is configured but unverified). It links to both pathways.
+- `/portal`: the worker portal, for explicitly linked accounts only. It shows a worker's own applications, offers (accept/decline with revision), training, call sheet, credential and attendance. No coworker contacts, rates or guest lists.
+- `/staff/*`: the staff console. Pages: applicants (list, detail and timeline), terms, events (detail, coverage and printable call sheet), campaigns, integration (local / outbox / dry run, cutover disabled), Serve Team and access. Role- and department-scoped.
+- `/crew/admin`: legacy v1 applicant list, now **read-only** (`CREW_LEGACY_ADMIN_MODE`). It is retired once a Command Center cutover is recorded.
+
+Console surfaces use the same palette and type, with denser layouts. Planning-seed data is tagged "Planning seed" and unknown counts render as "unknown", never 0. The call sheet prints light (white page, dark ink) whether or not background graphics are on.
 
 ## Key Flow
 
-Visitor → understands opportunity → chooses role → 7-step application (conditional steps 5/6) →
-consent → submit → "YOU'RE IN THE PIPELINE" success → Sanctuary onboarding pipeline.
+Visitor understands the opportunity and chooses a role. The application then runs up to nine steps, from `getSteps()` in `src/web/components/apply/steps.tsx`:
+
+about → role → social → availability → [promoter] → [host] → experience → motivation → confirm
+
+The promoter step appears for promoter roles and the host step for host roles, so applicants see seven to nine steps. Consent (versioned) is given on the confirm step, which also names the paid operator. After submit, the visitor sees "YOU'RE IN THE PIPELINE". Staff then review it in `/staff` (screen → scorecard → selected → offer → onboarding/training → event-ready). Nothing syncs to the Command Center until a real contract exists; records stay `local_staging`.

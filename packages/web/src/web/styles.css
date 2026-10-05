@@ -285,7 +285,11 @@ select.cx-input option { background: #111111; color: #ffffff; }
 /* Call sheet print view: plain black on white, no chrome. */
 @media print {
   @page { margin: 12mm; }
+  :root { color-scheme: light !important; }
   html, body { background: #ffffff !important; color: #0a0a0a !important; }
+  /* Console shell wrappers are dark on screen; with "Background graphics" on they
+     would print dark ink on near-black. Clear every ancestor of the sheet. */
+  :has(.print-sheet) { background: #ffffff !important; }
   .no-print, [data-runable-badge] { display: none !important; }
   .print-sheet, .print-sheet * { background: transparent !important; color: #0a0a0a !important; border-color: #e0e0e0 !important; }
   .print-sheet .cx-table th { color: #0a0a0a !important; border-bottom: 1px solid #0a0a0a !important; }

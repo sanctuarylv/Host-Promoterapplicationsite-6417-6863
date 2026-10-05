@@ -54,7 +54,7 @@ export default function AccessPage() {
                         <span>granted {fmtDate(m.grantedAt)}</span>
                       </p>
                     </div>
-                    <Btn size="sm" variant="ghost" onClick={() => setRevoking({ id: m.id, reason: "" })}>
+                    <Btn size="sm" variant="ghost" aria-label={`Revoke ${humanize(m.role)} for ${m.email ?? m.name ?? "this account"}`} onClick={() => setRevoking({ id: m.id, reason: "" })}>
                       Revoke
                     </Btn>
                   </li>
@@ -97,21 +97,25 @@ export default function AccessPage() {
                 hint={ROLE_NOTES[f.role]}
                 options={q.data.roles.map((r) => [r, humanize(r)] as [string, string])}
                 value={f.role}
-                onChange={(e) => setF({ ...f, role: e.target.value })}
+                onChange={(e) => setF({ ...f, role: e.target.value, eventId: "", departmentKey: "" })}
               />
-              <SelectField
-                label="Limit to event"
-                options={[["", "All events"], ...eventList.map((e) => [e.id, e.name] as [string, string])]}
-                value={f.eventId}
-                onChange={(e) => setF({ ...f, eventId: e.target.value })}
-              />
-              <TextField
-                label="Department key"
-                hint={f.role === "department_lead" ? "Required for department leads, e.g. guest_experience" : "Optional"}
-                required={f.role === "department_lead"}
-                value={f.departmentKey}
-                onChange={(e) => setF({ ...f, departmentKey: e.target.value })}
-              />
+              {(f.role === "event_director" || f.role === "department_lead") && (
+                <SelectField
+                  label="Limit to event"
+                  options={[["", "All events"], ...eventList.map((e) => [e.id, e.name] as [string, string])]}
+                  value={f.eventId}
+                  onChange={(e) => setF({ ...f, eventId: e.target.value })}
+                />
+              )}
+              {f.role === "department_lead" && (
+                <TextField
+                  label="Department key"
+                  hint="Required for department leads, e.g. guest_experience"
+                  required
+                  value={f.departmentKey}
+                  onChange={(e) => setF({ ...f, departmentKey: e.target.value })}
+                />
+              )}
               <Btn type="submit" variant="solid" busy={grant.isPending}>
                 Grant
               </Btn>

@@ -389,7 +389,10 @@ const applicationBase = aboutSchema
   .extend(socialSchema.shape)
   .extend(availabilitySchema.shape)
   .extend(promoterSchema.partial().shape)
-  .extend(hostSchema.partial().shape)
+  // Role-specific arrays are optional AND may be empty here: the form always sends
+  // `hostInterests: []` for promoter-only roles. The "at least one" rule for roles that
+  // need the block is enforced in `applicationSchema.superRefine` below.
+  .extend({ hostInterests: z.array(z.enum(values(HOST_INTEREST_OPTIONS))).max(HOST_INTEREST_OPTIONS.length).optional() })
   .extend(motivationSchema.shape)
   .extend(experienceSchema.partial().shape)
   .extend(consentSchema.shape)

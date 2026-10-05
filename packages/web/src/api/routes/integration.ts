@@ -15,7 +15,7 @@ import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { staffProc } from "../middleware/auth";
 import { db } from "../database";
 import { crewAudit, crewOutbox, serveInterest, staffMemberships, user as authUser } from "../database/schema";
-import { getIntegrationState, reconciliationDryRun, type Cutover, type RoundTrip } from "../crew/integration";
+import { CANONICAL_ADAPTER, endpointFingerprint, getIntegrationState, reconciliationDryRun, type Cutover, type RoundTrip } from "../crew/integration";
 import { drainDue, manualRetry, outboxSummary } from "../crew/outbox";
 import { getCrewConfig } from "../crew/config";
 import { SERVE_STATUSES } from "../crew/serve";
@@ -116,7 +116,19 @@ export const integration = {
     const [row] = await db.select().from(crewOutbox).where(eq(crewOutbox.id, input.outboxId)).limit(1);
     if (!row || row.status !== "synced" || !row.receipt_id || !row.canonical_id)
       throw new ORPCError("PRECONDITION_FAILED", { message: "Only an outbox entry acknowledged by Command Center (synced, with receipt and canonical id) counts as a round trip." });
-    const rt: RoundTrip = { at: new Date().toISOString(), receiptId: row.receipt_id, canonicalId: row.canonical_id, by: context.principal.userId, environment: input.environment };
+    const endpoint = endpointFingerprint();
+    if (!endpoint) throw new ORPCError("PRECONDITION_FAILED", { message: "Command Center endpoint is not configured." });
+    // The receipt must have been issued by the endpoint configured NOW — a receipt
+    // from a local mock or a previous endpoint is not evidence for this one.
+    const [synced] = await db
+      .select({ data: crewAudit.data })
+      .from(crewAudit)
+      .where(and(eq(crewAudit.entity_type, "outbox"), eq(crewAudit.entity_id, row.id), eq(crewAudit.action, "outbox.synced")))
+      .orderBy(desc(crewAudit.id))
+      .limit(1);
+    if (!synced || synced.data?.endpoint !== endpoint || synced.data?.receipt !== row.receipt_id)
+      throw new ORPCError("PRECONDITION_FAILED", { message: "That receipt was not issued by the currently configured Command Center endpoint." });
+    const rt: RoundTrip = { at: new Date().toISOString(), receiptId: row.receipt_id, canonicalId: row.canonical_id, by: context.principal.userId, environment: input.environment, endpoint };
     await setSetting("cc_verified_round_trip", rt, context.principal.userId);
     await audit(db, actorOf(context.principal), { entityType: "integration", entityId: "round_trip", action: "integration.round_trip_recorded", to: row.receipt_id, data: rt });
     return rt;
@@ -127,6 +139,7 @@ export const integration = {
     .input(z.object({ fingerprint: z.string().min(16).max(128), acknowledgeQuarantine: z.number().int().min(0), confirm: z.literal("CUTOVER") }))
     .handler(async ({ input, context }) => {
       requireCan(context.principal, "integration.manage");
+      if (!CANONICAL_ADAPTER.implemented) throw new ORPCError("PRECONDITION_FAILED", { message: CANONICAL_ADAPTER.reason });
       const state = await getIntegrationState();
       if (!state.roundTrip) throw new ORPCError("PRECONDITION_FAILED", { message: "Record a verified round trip first." });
       if (state.cutover) throw new ORPCError("CONFLICT", { message: "Cutover is already recorded." });
@@ -159,6 +172,9 @@ export const integration = {
         .limit(input.limit);
     }),
 };
+
+/** Roles whose permission checks honour an event pin (see shared/permissions EVENT map). */
+const EVENT_SCOPABLE: readonly string[] = ["event_director", "department_lead"];
 
 export const staff = {
   list: staffProc.handler(async ({ context }) => {
@@ -196,6 +212,12 @@ export const staff = {
       requireCan(context.principal, "staff.manage");
       if (input.role === "department_lead" && !input.departmentKey)
         throw new ORPCError("BAD_REQUEST", { message: "A department lead needs a department." });
+      // Only roles whose permissions are actually evaluated per event/department may
+      // carry that scope; anything else would LOOK limited while acting globally.
+      if (input.eventId && !EVENT_SCOPABLE.includes(input.role))
+        throw new ORPCError("BAD_REQUEST", { message: `The ${input.role} role is organization-wide and cannot be limited to one event.` });
+      if (input.departmentKey && input.role !== "department_lead")
+        throw new ORPCError("BAD_REQUEST", { message: "Only a department lead is limited to a department." });
       const [u] = await db.select({ id: authUser.id }).from(authUser).where(eq(authUser.email, input.email)).limit(1);
       if (!u) throw new ORPCError("NOT_FOUND", { message: "No account with that email has signed in yet." });
       const mid = uuid();
@@ -215,14 +237,22 @@ export const staff = {
     requireCan(context.principal, "staff.manage");
     const [m] = await db.select().from(staffMemberships).where(eq(staffMemberships.id, input.id)).limit(1);
     if (!m || m.revoked_at) throw new ORPCError("NOT_FOUND", { message: "Membership not found" });
-    if (m.user_id === context.principal.userId && m.role === "admin") {
-      const admins = await db
-        .select({ n: sql<number>`count(*)` })
-        .from(staffMemberships)
-        .where(and(eq(staffMemberships.role, "admin"), isNull(staffMemberships.revoked_at)));
-      if (Number(admins[0]?.n ?? 0) <= 1) throw new ORPCError("PRECONDITION_FAILED", { message: "You are the last admin." });
+    // One conditional UPDATE: an admin membership is revoked only while ANOTHER
+    // active admin (a different account) remains — so two admins revoking each
+    // other at the same moment can never leave the organization with none.
+    const keepsAnAdmin =
+      m.role === "admin"
+        ? sql`exists (select 1 from staff_memberships o where o.role = 'admin' and o.revoked_at is null and o.id <> ${m.id})`
+        : sql`1 = 1`;
+    const done = await db
+      .update(staffMemberships)
+      .set({ revoked_at: new Date(), revoked_by: context.principal.userId })
+      .where(and(eq(staffMemberships.id, m.id), isNull(staffMemberships.revoked_at), keepsAnAdmin))
+      .returning({ id: staffMemberships.id });
+    if (!done.length) {
+      if (m.role === "admin") throw new ORPCError("PRECONDITION_FAILED", { message: "This is the last admin account — grant another admin first." });
+      throw new ORPCError("CONFLICT", { message: "This membership changed since you loaded it." });
     }
-    await db.update(staffMemberships).set({ revoked_at: new Date(), revoked_by: context.principal.userId }).where(eq(staffMemberships.id, m.id));
     await audit(db, actorOf(context.principal), { entityType: "staff_membership", entityId: m.id, action: "staff.revoke", from: m.role, note: input.reason });
     return { ok: true };
   }),

@@ -1,7 +1,10 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { runableManagedAuth } from "@runablehq/managed-auth/server";
+import { createHash } from "node:crypto";
 import { db } from "./database";
+import { rateLimit } from "./crew/rate-limit";
 
 /**
  * Client-IP trust for Better Auth's rate limiter, aligned with CREW_TRUSTED_PROXY
@@ -16,6 +19,23 @@ const proxyMode = (process.env.CREW_TRUSTED_PROXY ?? "none").trim().toLowerCase(
 const trustedIpHeader = proxyMode === "cloudflare" ? "cf-connecting-ip" : proxyMode === "x-real-ip" ? "x-real-ip" : null;
 const SHARED_FACTOR = 20;
 const sharedCeiling = (_req: Request, cur: { window: number; max: number }) => (trustedIpHeader ? cur : { window: cur.window, max: cur.max * SHARED_FACTOR });
+
+/**
+ * Per-ACCOUNT password-guessing guard, independent of client IP (which may be
+ * untrusted/shared — see above). Counts every email sign-in attempt for one
+ * normalized address in the shared DB limiter. Trade-off: someone hammering an
+ * address can delay that address's password sign-in for the window; Google
+ * sign-in is unaffected. Counters store only a hash of the address.
+ */
+export const SIGNIN_PER_EMAIL = { limit: 10, windowMs: 15 * 60_000 };
+const signInGuard = createAuthMiddleware(async (ctx) => {
+  if (ctx.path !== "/sign-in/email") return;
+  const email = String((ctx.body as { email?: unknown } | undefined)?.email ?? "").trim().toLowerCase();
+  if (!email) return;
+  const key = `signin-email:${createHash("sha256").update(email).digest("hex").slice(0, 32)}`;
+  const r = await rateLimit(key, SIGNIN_PER_EMAIL.limit, SIGNIN_PER_EMAIL.windowMs);
+  if (!r.ok) throw new APIError("TOO_MANY_REQUESTS", { message: "Too many sign-in attempts for this account. Try again later or use Google sign-in." });
+});
 
 /**
  * Individual sign-in for staff and workers (Better Auth).
@@ -34,6 +54,7 @@ export const auth = betterAuth({
     const origin = request?.headers.get("origin");
     return origin ? [origin] : ["*"];
   },
+  hooks: { before: signInGuard },
   advanced: { ipAddress: { ipAddressHeaders: [trustedIpHeader ?? "x-sanctuary-no-trusted-ip"] } },
   rateLimit: {
     enabled: true,

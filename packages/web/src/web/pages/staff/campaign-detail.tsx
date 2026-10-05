@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { Btn, Empty, ErrorNote, Loading, PageTitle, Panel, SelectField, Stat, Tag, TextField, countOrUnknown, fmtDay, humanize, usd } from "../../components/console/ui";
 import { usePageMeta } from "../../hooks/use-page-meta";
-import { useAddLink, useAddTask, useCampaign, useCampaignLinkQr, useSetBudgetLine, useSetGoal, useSetTaskStatus, useUpdateCampaign } from "../../queries/campaigns";
+import { type CampaignDetailInput, useAddLink, useAddTask, useCampaign, useCampaignLinkQr, useSetBudgetLine, useSetGoal, useSetTaskStatus, useUpdateCampaign } from "../../queries/campaigns";
 
 type Detail = NonNullable<ReturnType<typeof useCampaign>["data"]>;
 
@@ -27,7 +27,7 @@ function Header({ d }: { d: Detail }) {
         <div>
           <dt className="text-white/60">Status</dt>
           <dd>
-            <Tag>{humanize(c.status)}</Tag>
+            <Tag>{humanize(c.status)}</Tag> {c.is_planning_seed && <Tag tone="warn">Planning seed</Tag>}
           </dd>
         </div>
       </dl>
@@ -47,21 +47,79 @@ function Header({ d }: { d: Detail }) {
   );
 }
 
-function Metrics({ d }: { d: Detail }) {
+export type Scope = { role: string; from: string; to: string };
+const ROLE_FILTER: [string, string][] = [
+  ["", "All roles"],
+  ["host", "Host"],
+  ["promoter", "Promoter"],
+  ["both", "Both"],
+  ["not_sure", "Not sure yet"],
+  ["guest_experience_lead", "Guest Experience Lead"],
+  ["promoter_manager", "Promoter Manager"],
+];
+
+function ScopeBar({ scope, onChange, busy }: { scope: Scope; onChange: (s: Scope) => void; busy: boolean }) {
+  const invalid = Boolean(scope.from && scope.to && scope.from > scope.to);
+  return (
+    <form className="mb-4 flex flex-wrap items-end gap-3 border-b border-white/10 pb-4" onSubmit={(e) => e.preventDefault()} aria-label="Results scope">
+      <SelectField label="Role" options={ROLE_FILTER} value={scope.role} onChange={(e) => onChange({ ...scope, role: e.target.value })} />
+      <TextField label="Applied from" type="date" value={scope.from} max={scope.to || undefined} onChange={(e) => onChange({ ...scope, from: e.target.value })} />
+      <TextField
+        label="Applied to"
+        type="date"
+        value={scope.to}
+        min={scope.from || undefined}
+        invalid={invalid}
+        hint={invalid ? "The end date must be on or after the start date." : "Inclusive, Las Vegas time"}
+        onChange={(e) => onChange({ ...scope, to: e.target.value })}
+      />
+      {(scope.role || scope.from || scope.to) && (
+        <Btn type="button" onClick={() => onChange({ role: "", from: "", to: "" })}>
+          Clear filters
+        </Btn>
+      )}
+      {busy && <output className="text-xs text-white/60">Updating…</output>}
+    </form>
+  );
+}
+
+const share = (x: { value: number; denominator: number | null }) => `${x.value} (${pct(x.value, x.denominator)})`;
+
+function Metrics({ d, scope, onScope, busy }: { d: Detail; scope: Scope; onScope: (s: Scope) => void; busy: boolean }) {
   const m = d.metrics;
+  const den = `of ${m.applications.value} ${m.denominatorLabel}`;
   return (
     <Panel id="metrics" title="Results" eyebrow="Every rate shows its denominator">
+      <ScopeBar scope={scope} onChange={onScope} busy={busy} />
+      <p className="mb-3 text-sm text-white/75" aria-live="polite">
+        Scope: <span className="text-white">{m.scope.label}</span>
+      </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Attributed applications" value={m.attributedApplications.value} hint={`of ${m.attributedApplications.denominator} ${m.attributedApplications.denominatorLabel}`} />
-        <Stat label="Selected or later" value={`${m.selectedOrLater.value} (${pct(m.selectedOrLater.value, m.selectedOrLater.denominator)})`} hint={`of ${m.selectedOrLater.denominator} ${m.selectedOrLater.denominatorLabel}`} />
+        <Stat label="Applications" value={m.applications.value} hint={`of ${m.applications.denominator} ${m.applications.denominatorLabel}`} />
+        <Stat label="Unique people" value={m.uniquePeople.value} hint={m.uniquePeople.unlinked ? `${m.uniquePeople.unlinked} application(s) not yet linked to a person` : "Distinct people across these applications"} />
+        <Stat label="Reviewed" value={share(m.reviewed)} hint={den} />
+        <Stat label="Median time to review" value={m.medianHoursToReview.value === null ? "—" : `${m.medianHoursToReview.value} h`} hint={`${m.medianHoursToReview.note} · n=${m.medianHoursToReview.n}`} />
+        <Stat label="Attended interview" value={share(m.interviewAttended)} hint={`${den} · ${m.interviewNoShow.value} no-show`} />
+        <Stat label="Qualified" value={share(m.qualified)} hint={`${m.qualified.definition} · ${den}`} />
+        <Stat label="Offered" value={share(m.offered)} hint={den} />
+        <Stat label="Accepted" value={share(m.accepted)} hint={den} />
+        <Stat label="Onboarding or later" value={share(m.onboarding)} hint={den} />
+        <Stat label="Training complete" value={share(m.trainingComplete)} hint={`${m.trainingComplete.definition} · ${den}`} />
+        <Stat label="Event-ready" value={share(m.eventReady)} hint={den} />
         <Stat label="Clicks / visits" value="Unknown" hint={m.clicks.note} />
-        <Stat label="Cost per applicant" value={m.costPerApplicant.value === null ? "—" : usd(m.costPerApplicant.value)} hint={m.costPerApplicant.note} />
+        <Stat label="Cost per qualified" value={m.costPerQualified.value === null ? "—" : usd(m.costPerQualified.value)} hint={m.costPerQualified.note} />
+        <Stat label="Cost per accepted" value={m.costPerAccepted.value === null ? "—" : usd(m.costPerAccepted.value)} hint={m.costPerAccepted.note} />
+        <Stat
+          label="Actual spend"
+          value={m.spend.state === "complete" ? usd(m.spend.actualCents) : m.spend.state === "partial" ? "Partial" : "Not recorded"}
+          hint={m.spend.totalLines ? `${m.spend.recordedLines} of ${m.spend.totalLines} budget lines have an actual` : "No budget lines"}
+        />
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
           <h3 className="eyebrow text-white/60">By role and status</h3>
           {m.byRole.length === 0 ? (
-            <Empty>No attributed applications yet.</Empty>
+            <Empty>No applications in this scope.</Empty>
           ) : (
             <ul className="mt-2 space-y-1 text-sm">
               {m.byRole.map((r) => (
@@ -78,7 +136,7 @@ function Metrics({ d }: { d: Detail }) {
         <div>
           <h3 className="eyebrow text-white/60">By source</h3>
           {m.bySource.length === 0 ? (
-            <Empty>No attributed applications yet.</Empty>
+            <Empty>No applications in this scope.</Empty>
           ) : (
             <ul className="mt-2 space-y-1 text-sm">
               {m.bySource.map((r) => (
@@ -107,7 +165,10 @@ function Goals({ d }: { d: Detail }) {
       {d.goals.length === 0 ? (
         <Empty>No goals set.</Empty>
       ) : (
-        <div className="overflow-x-auto" tabIndex={0} aria-label="Recruiting goals table — scroll horizontally">
+        <div className="relative overflow-x-auto"
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable (axe scrollable-region-focusable, WCAG 2.1.1)
+          tabIndex={0}
+          aria-label="Recruiting goals table — scroll horizontally">
           <table className="cx-table min-w-[520px]">
             <caption className="sr-only">Recruiting goals</caption>
             <thead>
@@ -373,10 +434,17 @@ function Budget({ d }: { d: Detail }) {
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <Stat label="Proposed" value={usd(b.proposedCents)} />
         <Stat label="Approved" value={usd(b.approvedCents)} />
-        <Stat label="Actual spend" value={usd(b.actualCents)} />
+        <Stat
+          label="Actual spend"
+          value={usd(b.actualCents)}
+          hint={d.metrics.spend.state === "partial" ? `Partial: ${d.metrics.spend.recordedLines} of ${d.metrics.spend.totalLines} lines recorded — not a complete total` : undefined}
+        />
       </div>
       {b.lines.length > 0 && (
-        <div className="mt-3 overflow-x-auto" tabIndex={0} aria-label="Budget table — scroll horizontally">
+        <div className="relative mt-3 overflow-x-auto"
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable (axe scrollable-region-focusable, WCAG 2.1.1)
+          tabIndex={0}
+          aria-label="Budget table — scroll horizontally">
           <table className="cx-table min-w-[560px]">
             <caption className="sr-only">Budget lines</caption>
             <thead>
@@ -443,7 +511,18 @@ function Budget({ d }: { d: Detail }) {
 }
 
 export default function CampaignDetailPage({ id }: { id: string }) {
-  const q = useCampaign({ id });
+  const [scope, setScope] = useState<Scope>({ role: "", from: "", to: "" });
+  const [applied, setApplied] = useState<Scope>(scope);
+  const onScope = (s: Scope) => {
+    setScope(s);
+    if (!(s.from && s.to && s.from > s.to)) setApplied(s);
+  };
+  const q = useCampaign({
+    id,
+    role: (applied.role || null) as CampaignDetailInput["role"],
+    from: applied.from || null,
+    to: applied.to || null,
+  });
   usePageMeta(q.data ? `${q.data.campaign.name} · Campaigns` : "Campaign · Staff", { noindex: true });
   if (q.isPending) return <Loading />;
   if (q.error || !q.data) return <ErrorNote error={q.error} />;
@@ -455,9 +534,9 @@ export default function CampaignDetailPage({ id }: { id: string }) {
           ← All campaigns
         </Link>
       </p>
-      <PageTitle eyebrow="Campaign" title={d.campaign.name} />
+      <PageTitle eyebrow={d.campaign.is_planning_seed ? "Campaign · planning seed, not live results" : "Campaign"} title={d.campaign.name} />
       <Header d={d} />
-      <Metrics d={d} />
+      <Metrics d={d} scope={scope} onScope={onScope} busy={q.isFetching && !q.isPending} />
       <Goals d={d} />
       <Links d={d} />
       <Tasks d={d} />

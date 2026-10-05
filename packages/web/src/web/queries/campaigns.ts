@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { orpc, client } from "../lib/api";
 import { useInvalidating } from "../lib/use-invalidating";
 
@@ -6,7 +6,7 @@ export type CampaignDetailInput = Parameters<typeof client.campaigns.detail>[0];
 const keys = () => [orpc.campaigns.key()];
 
 export const useCampaigns = () => useQuery(orpc.campaigns.list.queryOptions({ retry: false }));
-export const useCampaign = (input: CampaignDetailInput) => useQuery(orpc.campaigns.detail.queryOptions({ input, enabled: Boolean(input.id), retry: false }));
+export const useCampaign = (input: CampaignDetailInput) => useQuery(orpc.campaigns.detail.queryOptions({ input, enabled: Boolean(input.id), placeholderData: keepPreviousData, retry: false }));
 export const useCampaignLinkQr = () => useInvalidating(orpc.campaigns.linkQr.mutationOptions(), []);
 
 export const useCreateCampaign = () => useInvalidating(orpc.campaigns.create.mutationOptions(), keys());

@@ -524,6 +524,11 @@ function DoorCheck({ eventId }: { eventId: string }) {
               {r.name} · zones: {r.zones.length ? r.zones.join(", ") : "none listed"}
             </span>
           )}
+          {r.result === "valid" && r.checkIn !== "not_requested" && (
+            <span className="mt-1 block text-white/80">
+              {r.checkIn === "recorded" ? "Check-in recorded." : "Already checked in — nothing new recorded."}
+            </span>
+          )}
         </output>
       )}
       <ErrorNote error={verify.error} className="mt-2" />

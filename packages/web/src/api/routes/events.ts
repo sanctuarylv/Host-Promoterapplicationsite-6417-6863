@@ -25,7 +25,7 @@ import {
   opsTemplates,
   opsTemplateVersions,
 } from "../database/schema";
-import { actorOf, can, requireCan, visibleDepartments } from "../shared/permissions";
+import { actorOf, can, canSeeWholeEvent, requireCan, visibleDepartments } from "../shared/permissions";
 import { audit } from "../shared/audit";
 import { uuid } from "../shared/ids";
 import { addReportingLine, RELATIONS, removeReportingLine } from "../ops/org";
@@ -232,7 +232,7 @@ export const events = {
 
   detail: staffProc.input(z.object({ id })).handler(async ({ input, context }) => {
     const ev = await loadEvent(input.id);
-    const full = can(context.principal, "event.read", { eventId: ev.id });
+    const full = canSeeWholeEvent(context.principal, ev.id);
     const depts = visibleDepartments(context.principal, "roster.read", ev.id);
     if (!full && !(depts && depts.length)) throw new ORPCError("FORBIDDEN", { message: "No access to this event." });
     const roles = await templateRoles(ev.template_version_id);
@@ -464,10 +464,11 @@ export const assignments = {
     const [a] = await db.select().from(opsAssignments).where(eq(opsAssignments.id, input.id)).limit(1);
     if (!a) throw new ORPCError("NOT_FOUND");
     requireCan(context.principal, "assignment.approve", { eventId: a.event_id });
+    if (a.status !== "proposed") throw new ORPCError("PRECONDITION_FAILED", { message: a.status === "cancelled" ? "A cancelled assignment cannot be approved — propose a new one." : "Already approved." });
     const res = await db
       .update(opsAssignments)
       .set({ status: "approved", shift_confirmed: input.confirmShift ? Boolean(a.shift_start_utc) : a.shift_confirmed, revision: a.revision + 1, updated_at: new Date() })
-      .where(and(eq(opsAssignments.id, a.id), eq(opsAssignments.revision, input.revision)))
+      .where(and(eq(opsAssignments.id, a.id), eq(opsAssignments.revision, input.revision), eq(opsAssignments.status, "proposed")))
       .returning({ id: opsAssignments.id });
     if (!res.length) throw new ORPCError("CONFLICT", { message: "Assignment changed since you loaded it." });
     await audit(db, actorOf(context.principal), { entityType: "event", entityId: a.event_id, action: "assignment.approve", from: a.status, to: "approved", data: { assignmentId: a.id } });
@@ -478,10 +479,11 @@ export const assignments = {
     const [a] = await db.select().from(opsAssignments).where(eq(opsAssignments.id, input.id)).limit(1);
     if (!a) throw new ORPCError("NOT_FOUND");
     requireCan(context.principal, "roster.write", { eventId: a.event_id, departmentKey: a.department_key });
+    if (a.status === "cancelled") throw new ORPCError("PRECONDITION_FAILED", { message: "Already cancelled." });
     const res = await db
       .update(opsAssignments)
       .set({ status: "cancelled", revision: a.revision + 1, updated_at: new Date() })
-      .where(and(eq(opsAssignments.id, a.id), eq(opsAssignments.revision, input.revision)))
+      .where(and(eq(opsAssignments.id, a.id), eq(opsAssignments.revision, input.revision), ne(opsAssignments.status, "cancelled")))
       .returning({ id: opsAssignments.id });
     if (!res.length) throw new ORPCError("CONFLICT");
     // A cancelled assignment must not keep working credentials.
@@ -497,7 +499,7 @@ export const assignments = {
   /** Staff call sheet (printable). Department leads see only their departments. */
   callSheet: staffProc.input(z.object({ eventId: id })).handler(async ({ input, context }) => {
     const ev = await loadEvent(input.eventId);
-    const full = can(context.principal, "event.read", { eventId: ev.id });
+    const full = canSeeWholeEvent(context.principal, ev.id);
     const depts = visibleDepartments(context.principal, "roster.read", ev.id);
     if (!full && !(depts && depts.length)) throw new ORPCError("FORBIDDEN");
     const roles = await templateRoles(ev.template_version_id);

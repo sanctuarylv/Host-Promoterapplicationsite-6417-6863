@@ -26,11 +26,35 @@ import { CONSENT_VERSION, LEGACY_STATUS_MAP, PIPELINE_STATUSES } from "./contrac
 export type IntegrationMode = "local" | "pending" | "connected" | "degraded";
 
 export type Cutover = { at: string; by: string; reconciliationId: string; acknowledgedCount: number };
-export type RoundTrip = { at: string; receiptId: string; canonicalId: string; by: string; environment: string };
+export type RoundTrip = { at: string; receiptId: string; canonicalId: string; by: string; environment: string; endpoint?: string };
+
+/** Fingerprint of the configured forward target (origin + path, no credentials). */
+export function endpointFingerprint(cfg = getCrewConfig()) {
+  const cc = cfg.commandCenter;
+  return cc.baseUrl && cc.applicationsPath ? `${cc.baseUrl}${cc.applicationsPath}` : null;
+}
+
+/**
+ * Cutover safety gate. "connected" hands canonical ownership to Command Center,
+ * which is only safe once a REAL adapter exists: a canonical read endpoint for
+ * reconciliation, a verified (not proposed) contract, and receipts bound to the
+ * endpoint that issued them. None of that exists in this build — only a strict
+ * local mock of the PROPOSED contract — so cutover is refused and any stored
+ * cutover setting is ignored. Flip only in the change that ships the adapter.
+ */
+export const CANONICAL_ADAPTER = {
+  implemented: false,
+  reason: "Cutover is disabled in this build: the real Command Center contract, canonical read endpoint and reconciliation adapter are not available yet",
+} as const;
 
 export async function getIntegrationState() {
   const cfg = getCrewConfig();
-  const roundTrip = await getSetting<RoundTrip>("cc_verified_round_trip");
+  const recorded = await getSetting<RoundTrip>("cc_verified_round_trip");
+  // Evidence only counts for the endpoint it was recorded against. Repointing the
+  // adapter (e.g. from a local mock to the real service) invalidates it.
+  const endpoint = endpointFingerprint(cfg);
+  const roundTrip = recorded && recorded.endpoint && recorded.endpoint === endpoint ? recorded : null;
+  const staleRoundTrip = Boolean(recorded && !roundTrip);
   const cutover = await getSetting<Cutover>("cc_cutover");
   let mode: IntegrationMode = "local";
   let reason = "Saved locally — Command Center connection pending";
@@ -40,7 +64,12 @@ export async function getIntegrationState() {
       reason = "Forward mode set, but Command Center URL/path/key are incomplete";
     } else if (!roundTrip) {
       mode = "pending";
-      reason = "Configured, but no verified round trip receipt has been recorded";
+      reason = staleRoundTrip
+        ? "A round trip was recorded against a different endpoint — record one against the current Command Center"
+        : "Configured, but no verified round trip receipt has been recorded";
+    } else if (!CANONICAL_ADAPTER.implemented) {
+      mode = "pending";
+      reason = CANONICAL_ADAPTER.reason;
     } else if (!cutover) {
       mode = "pending";
       reason = "Round trip verified; reconciliation + cutover boundary not yet recorded";
@@ -69,7 +98,10 @@ export async function getIntegrationState() {
     referralMode: cfg.referralMode,
     configured: { forward: cfg.commandCenter.canForward, referralLookup: cfg.commandCenter.canLookupReferrals, statusPath: Boolean(cfg.commandCenter.statusPath) },
     roundTrip,
-    cutover,
+    staleRoundTrip,
+    cutover: CANONICAL_ADAPTER.implemented ? cutover : null,
+    cutoverAvailable: CANONICAL_ADAPTER.implemented,
+    cutoverBlockedReason: CANONICAL_ADAPTER.implemented ? null : CANONICAL_ADAPTER.reason,
     legacyAdminMode: cfg.legacyAdminMode,
     contract: "proposed (unverified) — docs/COMMAND_CENTER_CONTRACT_V2.md",
   };
