@@ -107,7 +107,7 @@ function Goals({ d }: { d: Detail }) {
       {d.goals.length === 0 ? (
         <Empty>No goals set.</Empty>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} aria-label="Recruiting goals table — scroll horizontally">
           <table className="cx-table min-w-[520px]">
             <caption className="sr-only">Recruiting goals</caption>
             <thead>
@@ -320,6 +320,15 @@ function Tasks({ d }: { d: Detail }) {
               .map((t) => (
                 <li key={t.id}>
                   {t.title} <span className="text-white/60">({humanize(t.status)})</span>
+                  {d.canWrite && (
+                    <SelectField
+                      className="mt-2"
+                      label="Status"
+                      options={[["todo", "To do"], ["in_progress", "In progress"], ["done", "Done"]]}
+                      value={t.status}
+                      onChange={(e) => setStatus.mutate({ taskId: t.id, status: e.target.value as "todo" })}
+                    />
+                  )}
                 </li>
               ))}
           </ul>
@@ -367,7 +376,7 @@ function Budget({ d }: { d: Detail }) {
         <Stat label="Actual spend" value={usd(b.actualCents)} />
       </div>
       {b.lines.length > 0 && (
-        <div className="mt-3 overflow-x-auto">
+        <div className="mt-3 overflow-x-auto" tabIndex={0} aria-label="Budget table — scroll horizontally">
           <table className="cx-table min-w-[560px]">
             <caption className="sr-only">Budget lines</caption>
             <thead>

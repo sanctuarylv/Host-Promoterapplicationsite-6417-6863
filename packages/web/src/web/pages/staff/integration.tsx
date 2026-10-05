@@ -143,7 +143,7 @@ function Reconcile({ quarantineDefault }: { quarantineDefault?: number }) {
           <p className="break-all font-mono text-xs text-white/65">Fingerprint {r.fingerprint}</p>
           <details>
             <summary className="min-h-11 cursor-pointer py-2 text-sm">Items ({r.items.length})</summary>
-            <ul className="mt-2 max-h-80 space-y-1 overflow-y-auto text-xs">
+            <ul className="mt-2 max-h-80 space-y-1 overflow-y-auto text-xs" tabIndex={0} aria-label="Reconciliation preview — scroll vertically">
               {r.items.map((i) => (
                 <li key={i.id} className="border border-white/10 px-3 py-1.5">
                   <Tag tone={i.action === "quarantine" ? "warn" : "muted"}>{i.action}</Tag> <span className="font-mono">{i.id.slice(0, 8)}</span> · {humanize(i.localStatus)}
@@ -185,7 +185,7 @@ function Audit() {
       ) : q.data.length === 0 ? (
         <Empty>No audit entries.</Empty>
       ) : (
-        <ul className="max-h-[28rem] space-y-1 overflow-y-auto text-xs">
+        <ul className="max-h-[28rem] space-y-1 overflow-y-auto text-xs" tabIndex={0} aria-label="Audit entries — scroll vertically">
           {q.data.map((a) => (
             <li key={a.id} className="border border-white/10 px-3 py-1.5">
               <span className="text-white/65">{fmtDate(a.created_at)}</span> · <span className="font-medium">{a.action}</span> · {a.entity_type}:{a.entity_id.slice(0, 8)} · {a.actor_label}

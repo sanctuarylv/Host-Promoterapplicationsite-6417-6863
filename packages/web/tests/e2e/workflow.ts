@@ -177,6 +177,17 @@ await admin.assignments.approve({ id: asg.id, revision: 1, confirmShift: true })
 check("credential before date confirmed -> PRECONDITION_FAILED", await outcome(admin.credentials.issue({ assignmentId: asg.id, validHours: 24 })), "PRECONDITION_FAILED");
 const detail0 = await admin.events.detail({ id: evt.id });
 await admin.events.setDate({ id: evt.id, revision: detail0.event.revision, localDate: "2026-11-14", ambiguity: "reject", venueConfirmed: false });
+check("credential with venue/training/supervisor missing -> PRECONDITION_FAILED", await outcome(admin.credentials.issue({ assignmentId: asg.id, validHours: 24 })), "PRECONDITION_FAILED");
+const requiredModules = (await admin.training.modules()).filter((m) => ["guest_service_fundamentals", "event_orientation", "venue_safety_authority"].includes(m.module_key) && m.status === "active");
+for (const m of requiredModules) await worker.worker.completeTraining({ moduleId: m.id });
+check("credential before staff training verification -> PRECONDITION_FAILED", await outcome(admin.credentials.issue({ assignmentId: asg.id, validHours: 24 })), "PRECONDITION_FAILED");
+for (const r of await admin.training.records({ personId })) await admin.training.verify({ recordId: r.id });
+const dateDetail = await admin.events.detail({ id: evt.id });
+await admin.events.setDate({ id: evt.id, revision: dateDetail.event.revision, localDate: "2026-11-14", ambiguity: "reject", venueConfirmed: true });
+check("credential without supervisor -> PRECONDITION_FAILED", await outcome(admin.credentials.issue({ assignmentId: asg.id, validHours: 24 })), "PRECONDITION_FAILED");
+// Local test-only supervisor fixture. Never a real staff placement.
+const [supervisor] = await q<{ id: string }>("select id from crew_people where id <> ? limit 1", [personId]);
+await q("update ops_assignments set supervisor_person_id = ? where id = ?", [supervisor!.id, asg.id]);
 const cred = await admin.credentials.issue({ assignmentId: asg.id, validHours: 24 });
 check("credential issued", Boolean(cred.id), true);
 
@@ -214,7 +225,7 @@ check("worker call sheet after cancel -> NOT_FOUND", await outcome(worker.worker
 
 // ---- optional: leave a live fixture for browser tests ------------------------------------
 if (process.env.KEEP === "1") {
-  const a2 = await admin.assignments.propose({ eventId: evt.id, personId, roleKey: "host", shift, supervisorPersonId: null });
+  const a2 = await admin.assignments.propose({ eventId: evt.id, personId, roleKey: "host", shift, supervisorPersonId: supervisor!.id });
   await admin.assignments.approve({ id: a2.id, revision: 1, confirmShift: true });
   await admin.credentials.issue({ assignmentId: a2.id, validHours: 24 });
   console.log(`KEEP fixture: worker=flow.worker+${run}@example.com assignment=${a2.id} event=${evt.id}`);

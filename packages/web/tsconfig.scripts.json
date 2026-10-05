@@ -1,6 +1,7 @@
 {
 	"extends": "./tsconfig.node.json",
 	"compilerOptions": {
+		"lib": ["ES2023", "DOM"],
 		"tsBuildInfoFile": "./node_modules/.tmp/tsconfig.scripts.tsbuildinfo"
 	},
 	"include": [
