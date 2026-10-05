@@ -5,6 +5,7 @@ import { useInvalidating } from "../lib/use-invalidating";
 export type OutboxInput = Parameters<typeof client.integration.outbox>[0];
 const keys = () => [orpc.integration.key(), orpc.me.key()];
 
+export const useReadiness = () => useQuery(orpc.integration.readiness.queryOptions({ retry: false }));
 export const useIntegrationState = () => useQuery(orpc.integration.state.queryOptions({ retry: false }));
 export const useOutbox = (input: OutboxInput) => useQuery(orpc.integration.outbox.queryOptions({ input, placeholderData: keepPreviousData, retry: false }));
 export const useIntegrationAudit = () => useQuery(orpc.integration.audit.queryOptions({ input: {}, retry: false }));

@@ -37,3 +37,7 @@ Per-item evidence, commands and results: `docs/ACCEPTANCE_V2.md`. Operating proc
 - 10-04: auth-schema generated (env sourced, DB=test). Schema split: schema-identity/recruiting/ops/campaigns. Migration 0001 generated, DROP of email_uq moved after replacement index; applied OK to copy of legacy snapshot (migrate-test.db, 45 tables, 7 legacy rows intact).
 - shared/{ids,audit,settings,permissions}.ts, DB rate limiter, middleware/auth.ts written (unverified).
 - 10-05: full verification round: lint clean, 3x tsc, build, unit 33, integration 6 suites, e2e 3 suites, browser 5 suites, migration rehearsal all pass. Fixed: 4 a11y lint errors, unreadable printed call sheet, unlabelled planning-seed campaigns.
+- 10-05 (later): production-readiness pass for https://crew.sanctuarylv.org (local only, not pushed): build forces NODE_ENV=production (main 447 kB),
+  explicit trustedOrigins allow-list, auth-secret guard, readiness table on /staff/integration, ticketing fixtures off on canonical +
+  labelled demo, legal placeholders (6 VITE_SANCTUARY_* keys), canonical/robots/sitemap, workbook dry-run validator,
+  docs: LEGAL_PLACEHOLDERS_V2, PRODUCTION_MIGRATION_CHECKLIST_V2, RUNBOOK §7.1/7.2/8/11/12, ACCEPTANCE production-readiness section.

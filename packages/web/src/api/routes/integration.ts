@@ -18,6 +18,7 @@ import { crewAudit, crewOutbox, serveInterest, staffMemberships, user as authUse
 import { CANONICAL_ADAPTER, endpointFingerprint, getIntegrationState, reconciliationDryRun, type Cutover, type RoundTrip } from "../crew/integration";
 import { drainDue, manualRetry, outboxSummary } from "../crew/outbox";
 import { getCrewConfig } from "../crew/config";
+import { readinessReport } from "../crew/production";
 import { SERVE_STATUSES } from "../crew/serve";
 import { actorOf, requireCan, STAFF_ROLES } from "../shared/permissions";
 import { audit } from "../shared/audit";
@@ -29,6 +30,12 @@ const reason = z.string().trim().min(3).max(500);
 const OUTBOX_STATUSES = ["held", "pending", "processing", "synced", "failed", "dead"] as const;
 
 export const integration = {
+  /** Production configuration readiness (presence/shape only — no secret values, no IPs). */
+  readiness: staffProc.handler(async ({ context }) => {
+    requireCan(context.principal, "integration.manage");
+    return readinessReport(context.headers);
+  }),
+
   state: staffProc.handler(async ({ context }) => {
     requireCan(context.principal, "integration.manage");
     const [state, summary] = await Promise.all([getIntegrationState(), outboxSummary()]);

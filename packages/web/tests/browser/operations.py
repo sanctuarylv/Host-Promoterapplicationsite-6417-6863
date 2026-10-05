@@ -50,6 +50,8 @@ async def main():
   await p.get_by_label('Event name',exact=True).fill(evt);await p.get_by_label('Template (published)',exact=True).select_option('seed_tpl_after_dark_v1');await p.get_by_role('button',name='Create planning event').click();await settle(p)
   await p.get_by_role('link',name=evt,exact=True).click();await settle(p)
   ck('planning event creation appears in list and opens detail','/staff/events/' in p.url,p.url);OUT['event']=p.url
+  ts=p.locator("[data-testid='ticketing-source']");await ts.first.wait_for(timeout=8000)
+  ck('promoter metrics labelled demo/test — live ticketing not connected','live ticketing not connected' in (await ts.inner_text()).lower(),await ts.inner_text())
   dt=p.locator('#date');await dt.get_by_label('Confirm local date').fill('2026-11-20');await dt.get_by_role('button',name='Save date').click();await settle(p)
   ck('date confirmed, overnight milestones resolved','2026-11-21 01:00' in await dt.inner_text(),(await dt.inner_text())[:200])
   # assignment intentionally not ready (venue / training / supervisor)

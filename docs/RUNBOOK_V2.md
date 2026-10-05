@@ -4,8 +4,12 @@ Operating notes for the v2 recruitment, onboarding and event-staffing build. Rea
 [`COMMAND_CENTER_CONTRACT_V2.md`](./COMMAND_CENTER_CONTRACT_V2.md) and
 [`ACCEPTANCE_V2.md`](./ACCEPTANCE_V2.md).
 
-**Status:** nothing in this build is deployed. Migration `0001` has **not** been applied to
+**Production domain:** `https://crew.sanctuarylv.org` (Sanctuary Crew / Host + Promoter platform).
+
+**Status:** this branch is not deployed. Migration `0001` has **not** been applied to
 any remote database. The Command Center connection is **not** live, and cutover is disabled in code.
+The production migration checklist is [`PRODUCTION_MIGRATION_CHECKLIST_V2.md`](./PRODUCTION_MIGRATION_CHECKLIST_V2.md);
+legal placeholders are listed in [`LEGAL_PLACEHOLDERS_V2.md`](./LEGAL_PLACEHOLDERS_V2.md).
 
 ---
 
@@ -45,15 +49,22 @@ bun scripts/seed-planning.ts
 Staff accounts are created by signing up once in the UI. Then grant a role from the
 shell (see §6).
 
-> **Build-size note.** The sandbox root `.env` sets `NODE_ENV=development`, and Vite loads it,
-> so `bun run build` there produces React's development bundle (main chunk about 708 kB, plus
-> the >500 kB warning). From a clean checkout without that `.env`, the same source builds
-> a main chunk of about 445 kB (measured 445.56 kB vs 708.01 kB, same source, uncached
-> `bunx vite build`). A shell override does **not** fix this: `vite.config.ts` runs
-> `Object.assign(process.env, loadEnv(...))`, so the `.env` value replaces
-> `NODE_ENV=production bun run build` (verified: still 708.01 kB). For release builds, make
-> sure the build environment's `.env` does not set `NODE_ENV=development`, or remove that line.
-> Also note `turbo build` caches; use `bunx turbo build --force` when comparing sizes.
+> **Production build mode.** The shared root `.env` sets `NODE_ENV=development`. Previously
+> `vite.config.ts` copied that into `process.env`, so `vite build` compiled React's development
+> bundle (main chunk 710 kB, >500 kB warning). Vite 7's `loadEnv` also records the file value in
+> `VITE_USER_NODE_ENV`, which Vite later promotes to `NODE_ENV`. Fixed: for `command === "build"`
+> the config drops both keys and forces `NODE_ENV=production`; `vite dev` still uses the `.env`
+> value. Uncached `bunx vite build` with the development `.env` now produces:
+>
+> | Asset | Size (gzip) |
+> |---|---|
+> | main `index-*.js` | 447.42 kB (148.94 kB) |
+> | CSS | 63.60 kB |
+> | largest route chunks | event-detail 61.13 kB, portal 59.98 kB, apply 47.94 kB |
+>
+> 30 JS chunks, no chunk over 500 kB, no warning. No further optimisation was needed for correctness.
+> The **runtime** still reads `NODE_ENV` (see §7). `turbo build` caches; use `bunx turbo build --force`
+> when comparing sizes.
 
 ## 3. Test suites
 
@@ -230,7 +241,65 @@ All keys are documented in `.env.template`, with blank secrets.
   blocked in-app.
 - **`COMMAND_CENTER_*`** describes a *proposed* contract. No production endpoint is known, so leave these blank.
 - **`VITE_SANCTUARY_PUBLIC_URL`** is the origin used in campaign tracked links (falls back to
-  `WEBSITE_URL`). The official domain is not confirmed.
+  `WEBSITE_URL`). Production: `https://crew.sanctuarylv.org`.
+
+### 7.1 Production environment (crew.sanctuarylv.org)
+
+Values are entered in the deployment environment by the administrator / platform, never committed.
+
+| Key | Production value | Source |
+|---|---|---|
+| `NODE_ENV` | `production` (or remove the line) | administrator. **Required:** Better Auth uses it for its default-secret check, rate-limit default, cookie naming and IP fallback; Electron uses it for `isDev` |
+| `WEBSITE_URL` | `https://crew.sanctuarylv.org` | platform (custom domain). Sets Better Auth `baseURL`, origin allow-list, fixture default |
+| `BETTER_AUTH_SECRET` | 32+ random chars | platform / administrator. The server refuses to start on the canonical domain without it |
+| `CREW_TOKEN_SECRET` | dedicated stable random value | administrator. Set **before** issuing production credentials; never rotate casually |
+| `APPLICATION_ID`, `VITE_APPLICATION_ID`, `VITE_RUNABLE_AUTH_ISSUER` | platform-injected | platform (managed Google sign-in) |
+| `DATABASE_URL`, `DATABASE_AUTH_TOKEN` | production Turso | platform |
+| `VITE_SITE_URL` | blank (defaults to canonical) or `https://crew.sanctuarylv.org` | build |
+| `VITE_SANCTUARY_PUBLIC_URL` | `https://crew.sanctuarylv.org` | administrator |
+| `CREW_TRUSTED_PROXY` | `none` until §8 is verified on the production path | administrator |
+| `CREW_TICKETING_FIXTURES` | blank (= disabled on canonical) | administrator |
+| `CREW_LEGACY_ADMIN_MODE` | `readonly`, then `disabled` | administrator |
+| `CREW_SUBMISSION_MODE` | `local` | fixed until the CC contract is verified |
+| `CREW_EXTRA_TRUSTED_ORIGINS` | blank | only if another exact https origin must call auth |
+| `VITE_SANCTUARY_*_URL` (6 legal keys) | approved https URLs | administrator / counsel ([`LEGAL_PLACEHOLDERS_V2.md`](./LEGAL_PLACEHOLDERS_V2.md)) |
+| `COMMAND_CENTER_*` | blank | until the real contract is supplied |
+
+The staff **Integration** page (`/staff/integration`, `integration.manage`) shows a *Production
+readiness* table computed from this configuration. It reports presence and shape only, never secret
+values or client IPs, and the Command Center row can never show PASS.
+
+### 7.2 Production domain, metadata and auth
+
+- **DNS** (administrator, Cloudflare, not from this repo): `CNAME crew → fallback.runable.site`, DNS only.
+  Probe on this pass: the name resolves through Runable's edge and already serves an **older**
+  deployment (its `og:url` is relative because `VITE_SITE_URL` was blank in that build).
+- **Metadata:** `index.html` and `use-page-meta.ts` emit `canonical` and `og:url` from `VITE_SITE_URL`
+  (default `https://crew.sanctuarylv.org`); `/` canonicalises to `/crew`; `noindex` pages drop the
+  canonical link. `public/robots.txt` disallows `/api/`, `/staff`, `/portal`, `/sign-in`, `/crew/admin`
+  and `/r/`; `public/sitemap.xml` lists `/crew`, `/crew/apply`, `/serve`.
+- **`packages/web/website.config.json`** still holds the template's `example.com` / `xyz.runable.site`.
+  It is a platform-managed template file and is left unchanged; the app reads none of it.
+- **Origin allow-list** (`trustedOrigins`, `src/api/crew/production.ts`): canonical domain, `WEBSITE_URL`,
+  `VITE_SANCTUARY_PUBLIC_URL`, `CREW_EXTRA_TRUSTED_ORIGINS` (exact origins, wildcards ignored), plus
+  `localhost`/`127.0.0.1` only when `WEBSITE_URL` is not the canonical domain. A foreign `Origin` gets
+  `403 INVALID_ORIGIN` (verified locally).
+- **Google sign-in is Runable managed auth** (`@runablehq/managed-auth` 0.4.0). The app holds **no Google
+  OAuth client**, so there are **no Google Cloud Console values** (JavaScript origins, redirect URIs) for
+  the administrator to enter. The flow is:
+
+  | Step | URL |
+  |---|---|
+  | start (broker) | `${VITE_RUNABLE_AUTH_ISSUER}/managed/start?application_id=…&provider=google&origin=https://crew.sanctuarylv.org&nonce=…` |
+  | provider callback | handled by the Runable broker (its own Google client and callback) |
+  | return to app | `https://crew.sanctuarylv.org/` with the identity token in the URL fragment (origin-rooted) |
+  | exchange | `POST https://crew.sanctuarylv.org/api/auth/managed/exchange` (verifies the broker JWT, `aud = APPLICATION_ID`) |
+  | session | bearer session via `/api/auth/get-session` |
+  | sign-out | `POST /api/auth/sign-out`, then the in-app route `/sign-in`. No external logout URL |
+
+  **External requirement:** the Runable broker must accept `https://crew.sanctuarylv.org` as a redirect
+  target for this `APPLICATION_ID`. Verify by a real Google sign-in on the domain after attaching it.
+  Email + password sign-in is verified locally.
 
 ## 8. Proxy trust and rate limits
 
@@ -243,8 +312,23 @@ All keys are documented in `.env.template`, with blank secrets.
 | `x-real-ip` | `x-real-ip` set by our own reverse proxy |
 | `xff:N` | the N-th entry from the right of `x-forwarded-for` (N = proxies we operate) |
 
-Malformed header values are treated as untrusted. **The Runable edge header contract is unverified**,
-so keep `none` until it is confirmed.
+Malformed header values are treated as untrusted. `True-Client-IP` and `Fly-Client-IP` are never trusted.
+
+**Edge findings (this pass):**
+
+| Path | Finding |
+|---|---|
+| Preview edge (`*.runable.site`, echo server) | sets `cf-connecting-ip` and `x-real-ip` to the real client IP; strips client `X-Forwarded-For`; overwrites client `X-Real-IP`; rejects client `CF-Connecting-IP` (Cloudflare error 1000); **passes `True-Client-IP` through unchanged (spoofable)**; `via: 1.1 google` |
+| `crew.sanctuarylv.org` | routed via Runable's Cloudflare zone (`fallback.runable.site`) and fly.io (`via: 1.1 fly.io, 1.1 google`). A spoofed `CF-Connecting-IP` is rejected with 403; a spoofed `X-Forwarded-For` is accepted by the edge. **Which headers reach the app on this path was not verified** (cannot run an echo server on the production route) |
+
+Sanctuary's own Cloudflare record is DNS only, so Sanctuary's zone adds no headers; any Cloudflare
+headers come from Runable's edge.
+
+**Required configuration:** keep `CREW_TRUSTED_PROXY=none` until the production path is verified. The
+likely setting is `x-real-ip` (or `cloudflare`) — confirm by opening `/staff/integration` on the deployed
+domain: the readiness row lists which client-IP headers arrived (presence only). Switch only if the
+header is present and the edge is confirmed to overwrite it. Never trust `X-Forwarded-For` positions you
+have not verified, and never `True-Client-IP`.
 
 Application limits are DB-backed and shared across instances:
 
@@ -260,10 +344,8 @@ Application limits are DB-backed and shared across instances:
 Better Auth: global 30 per 60 s. Without a trusted IP header the ceiling is ×20, because all clients
 share one bucket. `/get-session` is exempt: limiting it signed real users out.
 
-**Review note:** `trustedOrigins` in `src/api/auth.ts` reflects the request's `Origin` header.
-This matches the managed-auth template the platform ships, but it means CSRF protection relies on
-bearer tokens and same-site cookies rather than an origin allow-list. Pin it to the official origins
-once the domain is confirmed.
+`trustedOrigins` is now an explicit allow-list (§7.2); the earlier review note about reflecting the
+request's `Origin` is resolved.
 
 ## 9. Command Center and cutover
 
@@ -286,4 +368,30 @@ once the domain is confirmed.
 | 36-role staffing workbook | detailed role import. Only the 51-slot planning counts are seeded |
 | Managed Google sign-in verification on the deployed domain | Google sign-in sign-off (email + password verified locally) |
 | Trusted edge client-IP header contract | moving `CREW_TRUSTED_PROXY` off `none` |
-| Official domain, privacy policy URL, social URLs, brand assets | `VITE_SITE_URL`, `VITE_SANCTUARY_*`, og tags, pinned `trustedOrigins` |
+| Legal URLs and approved language (6 keys) | removing the "pending approval" placeholders |
+| Production-path edge header verification | moving `CREW_TRUSTED_PROXY` off `none` |
+| Platform attaching `crew.sanctuarylv.org` with `WEBSITE_URL` set to it | canonical deployment behaviour, Google return target |
+
+## 11. Staffing workbook
+
+The official 36-role workbook has not been supplied. Current template roles are a **planning seed**
+(`ops_template_versions.source_note`, `ops_template_roles.confirmation` = proposed / provisional /
+unconfirmed, `ops_events.is_planning_seed`). Nothing marks them as verified production staffing.
+
+When the workbook arrives:
+
+1. Export it to CSV (or JSON rows) with `role_key, title, department_key, slot_class, workforce, count,
+   supervisor_role_key, notes`.
+2. `bun scripts/workbook-reconcile.ts workbook.csv` — **dry run only**: opens no database, writes
+   nothing, reports duplicates, unknown supervisors, invalid enums, paid-Group vs nonprofit-Serve
+   conflicts and whether 36 roles are present.
+3. Import as a **new template version** (never edit the published planning seed in place), keep every
+   role `proposed` until staff approve it in-app. The import writer is a reviewed follow-up and is not
+   part of this build.
+
+## 12. Ticketing
+
+No live ticketing integration exists. `promoters.fixtureRegister` / `fixtureScan` create synthetic
+registrations (`source = test_fixture`) for tests and demos. They are **disabled by default on the
+canonical deployment** (`CREW_TICKETING_FIXTURES`), aggregates return `live: false`, and the event page
+labels the data "Demo / test data — live ticketing not connected".

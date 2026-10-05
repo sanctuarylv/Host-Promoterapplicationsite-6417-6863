@@ -71,6 +71,12 @@ async def main():
         sec = await text(p, "#pathways")
         ck("landing: Serve card says unpaid and separate", "unpaid" in sec and "separate" in sec, sec[-200:])
         ck("landing: no pay rate claims", not re.search(r"\$\s?\d+\s?(/|per)\s?(hr|hour)", t))
+        note = await text(p, "[data-testid='operator-note']")
+        ck("footer: operator note separates Group (paid) and nonprofit (Serve)", PAID in note and NONPROFIT in note, note)
+        ph = await p.locator("footer [data-legal-placeholder]").count()
+        ck("footer: unset legal URLs render labelled placeholders", ph >= 1 and "pending approval" in (await text(p, "footer")), ph)
+        canon = await p.locator("link[rel=canonical]").get_attribute("href")
+        ck("landing: canonical is the production domain", canon == "https://crew.sanctuarylv.org/crew", canon)
 
         # FAQ
         q = p.get_by_role("button", name=re.compile("rather volunteer", re.I))
@@ -92,6 +98,8 @@ async def main():
         ck("serve: describes its own sign-up and consent", "own sign-up" in t and "consent" in t)
         ck("serve: title names the nonprofit", NONPROFIT in (await p.title()).lower(), await p.title())
         ck("serve: no compensation promised", not re.search(r"\b(you will be paid|paid shift|hourly rate)\b", t))
+        keys = await p.locator("main [data-legal-placeholder]").evaluate_all("els => els.map(e => e.dataset.legalPlaceholder)")
+        ck("serve: volunteer-terms placeholder (not Group disclosure)", "VITE_SANCTUARY_VOLUNTEER_TERMS_URL" in keys and "VITE_SANCTUARY_GROUP_DISCLOSURE_URL" not in keys, keys)
 
         # /sign-in
         await p.goto(BASE + "/sign-in", wait_until="networkidle")

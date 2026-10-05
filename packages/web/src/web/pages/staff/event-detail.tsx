@@ -551,7 +551,11 @@ function PromotersPanel({ d }: { d: Detail }) {
         <ErrorNote error={agg.error} />
       ) : (
         <>
-          <p className="text-xs text-white/65">Source: {agg.data.source}</p>
+          <p className="flex flex-wrap items-center gap-2 text-xs text-white/65" data-testid="ticketing-source">
+            <Tag tone="warn">Demo / test data — live ticketing not connected</Tag>
+            {agg.data.fixtureRegistrations > 0 && <Tag tone="muted">{agg.data.fixtureRegistrations} test-fixture registrations</Tag>}
+            <span>Source: {agg.data.source}</span>
+          </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-4">
             <Stat label="Registrations" value={agg.data.totals.registrations} />
             <Stat label="Unique admitted" value={agg.data.totals.uniqueAdmitted} hint={`of ${agg.data.totals.registrations} registrations`} />

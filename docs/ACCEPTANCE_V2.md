@@ -22,7 +22,7 @@ This report covers the 16 required verification items from the v2 brief (§12, "
 | # | Item | Implemented | Tested | Externally blocked | Deployed |
 |---|---|---|---|---|---|
 | 1 | Baseline build/typecheck recorded | yes | yes | — | no |
-| 2 | Paid Group vs nonprofit separation | yes | yes | Official brand/legal copy | no |
+| 2 | Paid Group vs nonprofit separation | yes | yes | Approved legal URLs/copy (placeholders in place) | no |
 | 3 | Applications, referral links, consent survive migration | yes | yes (local rehearsal) | Production migration not run | no |
 | 4 | Real submission persists; duplicate/concurrent identity | yes | yes | Remote Turso concurrency | no |
 | 5 | Malformed / unrelated 409 never mark synced | yes | yes (mock CC) | Real CC contract | no |
@@ -38,7 +38,7 @@ This report covers the 16 required verification items from the v2 brief (§12, "
 | 15 | Keyboard, mobile, errors, print call sheet, navigation | yes | yes | — | no |
 | 16 | Production build + regressions; CC round trip | yes (build) | yes (build, suites) | **CC round trip (connection not claimed)** | no |
 
-## Commands and results (this round)
+## Commands and results (production-readiness pass, 2026-10-05)
 
 All suite commands run from `packages/web` unless marked *root*. The dev server for e2e and browser suites ran on `:4200` against `file:/home/user/sanctuary-testdb/crew-test.db`. The exact invocations are in `docs/RUNBOOK_V2.md` §3.
 
@@ -47,14 +47,18 @@ All suite commands run from `packages/web` unless marked *root*. The dev server 
 | Lint *(root)* | `bun run lint` | 0 warnings, 0 errors |
 | Build *(root)* | `bun run build` / `bunx turbo build --force` | pass (see the bundle note below) |
 | Typecheck | `bunx tsc --noEmit -p tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.scripts.json` | 0 errors each |
-| Unit | `DATABASE_URL=file:/tmp/crew-unit.db DATABASE_AUTH_TOKEN=local-file bun test tests/` | 33/33 |
-| Integration | `env -u DATABASE_URL -u DATABASE_AUTH_TOKEN bun tests/integration/<suite>.ts` | `authz` 100/100, `limits` 23/23, `outbox` 69/69, `cutover` 21/21, `campaigns` 40/40, `listing` 25/25 |
-| e2e | `bun tests/e2e/<suite>.ts` (local file DB) | `public-api` 47/47, `auth-smoke` 13/13, `workflow` (`KEEP=1`) 51/51 |
-| Browser | `python3 tests/browser/<suite>.py` | `console_v2` 31/31, `apply_roles` 70/70, `pipeline_ui` 23/23, `operations` 37/37, `pathways` 25/25 |
-| Migration rehearsal | `bash tests/migration/check.sh` | PASS: tables 4→45, legacy rows 7 preserved, 0 fields changed, backfill and seed idempotent |
+| Unit | `DATABASE_URL=file:/tmp/crew-unit.db DATABASE_AUTH_TOKEN=local-file bun test tests/` | 53/53 (5 files, incl. `production.test.ts` 15, `workbook.test.ts` 5) |
+| Integration | `env -u DATABASE_URL -u DATABASE_AUTH_TOKEN bun tests/integration/<suite>.ts` | `authz` 102/102, `limits` 23/23, `outbox` 69/69, `cutover` 21/21, `campaigns` 40/40, `listing` 25/25 |
+| e2e | `bun tests/e2e/<suite>.ts` (local file DB) | `public-api` 47/47, `auth-smoke` 18/18, `workflow` (`KEEP=1`) 51/51 |
+| Browser | `python3 tests/browser/<suite>.py` | `console_v2` 34/34, `apply_roles` 70/70, `pipeline_ui` 23/23, `operations` 38/38, `pathways` 29/29 (with `CREW_WORKER_EMAIL`) |
+| Migration rehearsal | `bash tests/migration/check.sh legacy-v1-snapshot.db` | PASS: tables 4→45, legacy rows 7 preserved, 0 fields changed, second migrate no-op, backfill and seed idempotent |
+| Migration failure | `0001` on a copy with a pre-existing `user` table | exit 1, full rollback: no partial tables, `crew_applications_email_uq` intact, 7 rows intact |
+| Remote-write guard | `backfill-v2.ts` / `seed-planning.ts` with a `libsql://` URL, no `--target` | exit 2, nothing written |
+| Secret scan | `.env` secret values vs tree + full history; token patterns vs diff | 0 secret hits (only the public `APPLICATION_ID` in platform-managed `packages/mobile/app.json`); no `.env*` tracked |
+| Diff hygiene | `git diff --check` | clean |
 | Schema drift | `drizzle-kit generate` into a scratch copy of `drizzle/` | "No schema changes, nothing to migrate" |
 
-**Bundle note.** With the sandbox root `.env` (`NODE_ENV=development`), the main chunk is 708.01 kB and triggers the >500 kB warning. The same source built without that `.env` is 445.56 kB. Both builds were run uncached with `bunx vite build`. A shell `NODE_ENV=production` does **not** override the file, because `vite.config.ts` copies `loadEnv()` into `process.env`. The fix is in the release environment, not the code (see `RUNBOOK_V2.md` §2).
+**Bundle note.** Fixed in code this pass: `vite build` now forces `NODE_ENV=production` even though the root `.env` says `development` (it also neutralises Vite's `VITE_USER_NODE_ENV` promotion). `bunx turbo build --force` with the development `.env`: main chunk **447.42 kB** (gzip 148.94 kB, was 710 kB), CSS 63.60 kB, 30 JS chunks, largest route chunks event-detail 61 kB / portal 60 kB / apply 48 kB, **no >500 kB warning**. The runtime still reads `NODE_ENV`, so the deployed `.env` must set `production` (see below).
 
 **Known limitation found by testing.** Parallel distinct-email submissions against a *local file* SQLite DB can hit `SQLITE_BUSY`. This fails safe: a 500 with "We couldn't save your application. Please try again." and no partial row. Remote Turso behaviour under the same load is unverified.
 
@@ -295,5 +299,70 @@ All suite commands run from `packages/web` unless marked *root*. The dev server 
 3. The 36-role staffing workbook; not imported (item 10).
 4. Managed Google sign-in verification on the real domain (item 7).
 5. The trusted edge client-IP header for production rate limiting (item 14).
-6. The official domain, privacy policy, and social and brand assets (item 2).
+6. Approved legal URLs/copy and social/brand assets (item 2). The domain is now confirmed: `https://crew.sanctuarylv.org`.
 7. Review and approval of the production migration (item 3).
+
+See the production-readiness section below for the full, classified list.
+
+---
+
+## Production readiness — `https://crew.sanctuarylv.org`
+
+Classification for production connection. **Nothing was deployed, pushed, merged or migrated.** PASS means
+verified locally in this sandbox (or, for DNS, observed live); it does not mean deployed.
+
+### PASS
+
+| # | Item | Evidence |
+|---|---|---|
+| P1 | Canonical domain in config and metadata | `CANONICAL_ORIGIN` (`src/api/crew/production.ts`, `vite.config.ts`); built `index.html` has `canonical` + `og:url` = `https://crew.sanctuarylv.org/crew`; `robots.txt`, `sitemap.xml`; browser check `landing: canonical is the production domain` |
+| P2 | DNS record present | `crew.sanctuarylv.org` → CNAME `fallback.runable.site`, HTTP 200 (serves an older deployment — see E5) |
+| P3 | Production build compiles in production mode | 447.42 kB main chunk with the development `.env`, no >500 kB chunk (`RUNBOOK_V2.md` §2) |
+| P4 | Auth origin allow-list | `trustedOrigins` no longer reflects the request Origin; `https://evil.example` → 403 `INVALID_ORIGIN`, no token (`auth-smoke`, unit) |
+| P5 | Auth secret fails closed | server refuses to start on the canonical deployment or `NODE_ENV=production` without a 32+ char `BETTER_AUTH_SECRET` (unit) |
+| P6 | Google auth values documented | managed auth: no Google Console values exist for the app; start / return / exchange / sign-out URLs in `RUNBOOK_V2.md` §7.2 |
+| P7 | Paid Group vs nonprofit separation | acknowledgements, `/serve`, footer operator note, portal; workbook validator rejects cross-entity roles (browser + unit) |
+| P8 | Command Center honesty + boundary | "Saved locally — Command Center connection pending"; readiness row can never be PASS; boundary in `COMMAND_CENTER_CONTRACT_V2.md` §8 |
+| P9 | Ticketing behind a boundary, demo labelled | fixtures disabled by default on the canonical domain; aggregates `live: false`; event page tag "Demo / test data — live ticketing not connected" (unit, integration, browser) |
+| P10 | Staffing data distinguished | planning-seed markers (`source_note`, `confirmation`, `is_planning_seed`); `scripts/workbook-reconcile.ts` dry-run validator |
+| P11 | Legal configuration points | 6 `VITE_SANCTUARY_*` keys, visible placeholders at every location (`LEGAL_PLACEHOLDERS_V2.md`); browser checks on footer and `/serve` |
+| P12 | Migration validated (local) | forward, idempotent re-run, legacy preservation, atomic failure rollback, remote-write guard, no drift |
+| P13 | Production migration checklist | `PRODUCTION_MIGRATION_CHECKLIST_V2.md` (not executed) |
+| P14 | IP spoofing protection | `CREW_TRUSTED_PROXY=none` ignores all client-IP headers; `True-Client-IP` never trusted (unit, `limits` 23/23) |
+| P15 | Full verification suite | lint, 3× tsc, unit 53, integration 280, e2e 116, browser 194, build, secret scan, diff check |
+
+### BLOCKED — USER INPUT REQUIRED
+
+| # | Item | Exactly what the administrator must provide |
+|---|---|---|
+| U1 | Legal documents | https URLs for `VITE_SANCTUARY_PRIVACY_URL`, `_TERMS_URL`, `_GROUP_DISCLOSURE_URL`, `_VOLUNTEER_TERMS_URL`, `_COMMUNICATIONS_URL`, `_DATA_RETENTION_URL`; approval (or replacement) of the paid and Serve acknowledgements; which entity/channels the optional marketing opt-in covers; whether SMS will be used (then approved SMS consent wording); retention periods |
+| U2 | 36-role staffing workbook | the official workbook as CSV/JSON (columns in `RUNBOOK_V2.md` §11) |
+| U3 | Runtime `NODE_ENV` | in the deployed environment, set `NODE_ENV=production` or delete the `NODE_ENV=development` line |
+| U4 | `CREW_TOKEN_SECRET` | a dedicated, stable random secret in the deployed environment before any production credential is issued |
+| U5 | Production migration | written approval, change window, operator/reviewer, fresh backup per the checklist |
+| U6 | Release approval | review of PR #1, authorization to push this pass, and the merge decision |
+| U7 | Social and brand links | `VITE_SANCTUARY_INSTAGRAM_URL`, `_TIKTOK_URL`, `_YOUTUBE_URL`, `_WEBSITE_URL` (placeholders shown until set) |
+
+### BLOCKED — EXTERNAL SYSTEM
+
+| # | Item | What is needed, and from whom |
+|---|---|---|
+| E1 | Command Center | Command Center team: real contract (`COMMAND_CENTER_CONTRACT_V2.md` §7), test environment, test identities and per-environment credentials; then a recorded round trip |
+| E2 | Live ticketing | ticketing provider + API contract and credentials; fixtures remain the only data source |
+| E3 | Client-IP header on the production path | after deploy, open `/staff/integration` on `crew.sanctuarylv.org` and confirm which IP header arrives (preview edge sets `x-real-ip` / `cf-connecting-ip` and strips client XFF; the fly.io route was not verifiable); then set `CREW_TRUSTED_PROXY` |
+| E4 | Managed Google sign-in on the domain | Runable: the managed-auth broker must accept `https://crew.sanctuarylv.org` as a redirect origin for this `APPLICATION_ID`; verify with one real Google sign-in |
+| E5 | Custom domain → this build | Runable platform: attach `crew.sanctuarylv.org` to the deployment with `WEBSITE_URL=https://crew.sanctuarylv.org`, and publish an approved build (the domain currently serves an older build with a relative `og:url`) |
+| E6 | Remote concurrency | load test against a non-production Turso database: `SQLITE_BUSY` behaviour is verified only on local files |
+
+### NOT STARTED
+
+| # | Item | Depends on |
+|---|---|---|
+| N1 | Workbook import writer (new template version from a validated export) | U2 |
+| N2 | Data-retention purge job | U1 retention periods |
+| N3 | Canonical Command Center adapter (`CANONICAL_ADAPTER.implemented = true`) | E1 |
+
+**Tally:** PASS 15 · BLOCKED — USER INPUT REQUIRED 7 · BLOCKED — EXTERNAL SYSTEM 6 · NOT STARTED 3.
+
+`packages/web/website.config.json` keeps the template's placeholder hostnames: it is a platform-managed
+template file and the app reads none of it, so it was left unchanged.

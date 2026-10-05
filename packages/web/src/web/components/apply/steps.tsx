@@ -26,6 +26,7 @@ import {
 } from "../../../api/crew/contract";
 import { Checkbox, ChoiceGroup, SelectField, TextAreaField, TextField, YesNo, type FieldErrors } from "./fields";
 import { PRIVACY_URL } from "../../lib/site-config";
+import { LegalLinks } from "../crew/legal";
 
 export type FormState = {
   firstName: string;
@@ -408,6 +409,7 @@ const Confirm: StepDef = {
           </>
         ) : null}
       </p>
+      <LegalLinks keys={["privacy", "terms", "groupDisclosure", "communications", "retention"]} />
     </div>
   ),
 };

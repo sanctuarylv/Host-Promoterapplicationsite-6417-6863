@@ -1,0 +1,12 @@
+# Sanctuary Crew — https://crew.sanctuarylv.org
+User-agent: *
+Allow: /crew
+Allow: /serve
+Disallow: /api/
+Disallow: /staff
+Disallow: /portal
+Disallow: /sign-in
+Disallow: /crew/admin
+Disallow: /r/
+
+Sitemap: https://crew.sanctuarylv.org/sitemap.xml

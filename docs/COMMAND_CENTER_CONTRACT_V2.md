@@ -135,3 +135,26 @@ The reconciliation preview (`integration.reconcile`) is a read-only dry run. It 
 7. Rate limits and `Retry-After` behaviour.
 
 Then ship the adapter in a reviewed change: set `CANONICAL_ADAPTER.implemented = true` and add tests against the real test environment. Only after that can an admin record a round trip and a cutover.
+
+## 8. Integration boundary (where the real API plugs in)
+
+Core application logic never calls the Command Center directly. Everything goes through:
+
+| Layer | File | Replace / extend when the real contract arrives |
+|---|---|---|
+| Payload mapping | `src/api/crew/command-center.ts` `toCommandCenterPayload` | map to the real request schema |
+| Transport + response interpretation | `sendOperation`, `interpretForwardResponse`, `interpretReferralResponse` | real paths, auth, signing; strict receipt parsing stays |
+| Durable delivery | `src/api/crew/outbox.ts` (idempotency keys, claim, backoff, retry) | unchanged |
+| Mode / cutover gate | `src/api/crew/integration.ts` (`CANONICAL_ADAPTER`, `getIntegrationState`, `assertCanonicalWritable`) | set `implemented = true` only in the reviewed adapter change |
+
+Applications, the pipeline, offers and ops write locally (`authority = local_staging`) and enqueue outbox
+rows; they do not change when the adapter is connected.
+
+## 9. Production deployment (crew.sanctuarylv.org)
+
+- Production origin: `https://crew.sanctuarylv.org`. Nothing in this repository sets a Command Center
+  endpoint, key or signing secret for it; `COMMAND_CENTER_*` stay blank until §7 is supplied.
+- The staff readiness table (`/staff/integration`) reports the Command Center row as
+  **BLOCKED — EXTERNAL SYSTEM** in every configuration, including when values are present, because the
+  contract is unverified. It cannot show PASS in this build (unit-tested in `tests/production.test.ts`).
+- UI copy while unconnected: "Saved locally — Command Center connection pending".

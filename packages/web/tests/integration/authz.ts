@@ -247,6 +247,8 @@ try {
   check("aggregates: re-entries separate", agg.totals.reentries, 7);
   check("aggregates: attributed registrations = 2", agg.byPromoter.find((b) => b.linkId === link.id)?.registrations, 2);
   check("aggregates: labelled as fixture data", agg.source.startsWith("test_fixture_or_import"), true);
+  check("aggregates: live ticketing flagged not connected", agg.live, false);
+  check("aggregates: fixture registrations counted", agg.fixtureRegistrations >= 2, true);
   check("aggregates expose no guest identities", /guest\d@|guest_key/.test(JSON.stringify(agg)), false);
   check("dept lead cannot read referral aggregates", await outcome(leadGX.promoters.aggregates({ eventId: evA })), "FORBIDDEN");
 

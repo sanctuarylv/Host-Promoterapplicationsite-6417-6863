@@ -10,6 +10,7 @@ import { useSubmitServeInterest } from "../queries/crew";
 import { usePageMeta } from "../hooks/use-page-meta";
 import { track } from "../lib/analytics";
 import { EVENT_CONTENT, NONPROFIT_ENTITY, PAID_ENTITY } from "../lib/pathways";
+import { LegalLinks } from "../components/crew/legal";
 
 type ServeForm = {
   firstName: string;
@@ -145,6 +146,7 @@ export default function ServePage() {
                   ))}
                 </ul>
               </Checkbox>
+              <LegalLinks keys={["privacy", "terms", "volunteerTerms", "communications", "retention"]} />
               {/* Honeypot — hidden from people and assistive tech */}
               <div aria-hidden className="absolute -left-[9999px] top-auto h-px w-px overflow-hidden">
                 <label htmlFor="serve-website">Website</label>

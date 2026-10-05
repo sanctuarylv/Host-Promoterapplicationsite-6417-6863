@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Btn, Empty, ErrorNote, Loading, PageTitle, Panel, SelectField, Stat, Tag, TextField, fmtDate, humanize } from "../../components/console/ui";
 import { usePageMeta } from "../../hooks/use-page-meta";
-import { useDrainNow, useIntegrationAudit, useIntegrationState, useOutbox, useReconcile, useRecordCutover, useRecordRoundTrip, useRetryOutbox } from "../../queries/integration";
+import { useDrainNow, useIntegrationAudit, useIntegrationState, useReadiness, useOutbox, useReconcile, useRecordCutover, useRecordRoundTrip, useRetryOutbox } from "../../queries/integration";
 
 const STATUSES = ["held", "pending", "processing", "synced", "failed", "dead"] as const;
 type OutboxStatus = (typeof STATUSES)[number];
@@ -211,6 +211,55 @@ function Audit() {
   );
 }
 
+const READINESS_LABEL = {
+  pass: "Pass",
+  blocked_user: "Blocked — user input required",
+  blocked_external: "Blocked — external system",
+  not_started: "Not started",
+} as const;
+
+function Readiness() {
+  const q = useReadiness();
+  return (
+    <Panel id="readiness" title="Production readiness" eyebrow="Configuration presence only — no secret values or IP addresses are shown">
+      {q.isPending ? (
+        <Loading />
+      ) : q.error || !q.data ? (
+        <ErrorNote error={q.error} />
+      ) : (
+        <>
+          <p className="text-sm text-white/75">
+            Canonical domain: <span className="font-mono">{q.data.canonicalOrigin}</span> · Trusted auth origins: <span className="font-mono text-xs">{q.data.trustedOrigins.join(", ")}</span>
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="cx-table min-w-[720px]" data-testid="readiness-table">
+              <caption className="sr-only">Production readiness checks</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Check</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {q.data.checks.map((c) => (
+                  <tr key={c.key} data-check={c.key} data-state={c.state}>
+                    <td>{c.label}</td>
+                    <td>
+                      <Tag tone={c.state === "pass" ? "solid" : c.state === "not_started" ? "muted" : "warn"}>{READINESS_LABEL[c.state]}</Tag>
+                    </td>
+                    <td className="text-xs text-white/75">{c.detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 export default function IntegrationPage() {
   usePageMeta("Integration · Staff", { noindex: true });
   const q = useIntegrationState();
@@ -245,6 +294,7 @@ export default function IntegrationPage() {
         <span className="text-xs text-white/60">Only works in forward mode with a complete configuration. Otherwise nothing is sent.</span>
       </div>
       <ErrorNote error={drain.error} />
+      <Readiness />
       <Outbox />
       <Reconcile cutoverBlocked={s.cutoverBlockedReason} />
       <Audit />

@@ -6,6 +6,7 @@ import { usePageMeta } from "../hooks/use-page-meta";
 import { authClient, captureToken } from "../lib/auth";
 import { client } from "../lib/api";
 import { cn } from "../lib/utils";
+import { LegalLinks } from "../components/crew/legal";
 
 type Mode = "sign-in" | "sign-up";
 
@@ -206,6 +207,7 @@ export default function SignInPage() {
           </Link>
           .
         </p>
+        <LegalLinks className="mt-4" keys={["privacy", "terms"]} />
       </div>
     </main>
   );

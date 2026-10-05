@@ -19,7 +19,7 @@ Environment (all optional):
   CREW_SHOTS         directory for screenshots; none written if unset
 Writes a JSON report to stdout; exit code 1 on any failure.
 """
-import asyncio, json, os, sys, time
+import asyncio, json, os, re, sys, time
 from playwright.async_api import async_playwright
 
 BASE = os.environ.get("CREW_BASE", "http://localhost:4200")
@@ -198,6 +198,13 @@ async def main():
         await settle(p, 800)
         rc = p.locator("#reconcile")
         txt = await rc.inner_text()
+        rt = p.locator("[data-testid='readiness-table']")
+        states = await rt.locator("[data-check]").evaluate_all("els => Object.fromEntries(els.map(e => [e.dataset.check, e.dataset.state]))")
+        ck("readiness: Command Center row is never PASS", states.get("command_center") == "blocked_external", states.get("command_center"))
+        ck("readiness: live ticketing blocked, legal keys blocked for user input", states.get("ticketing") == "blocked_external" and states.get("legal:VITE_SANCTUARY_TERMS_URL") == "blocked_user", states)
+        rtxt = await rt.inner_text()
+        ck("readiness: shows no IP addresses", not re.search(r"\b\d{1,3}(\.\d{1,3}){3}\b", rtxt), rtxt[:120])
+        await shot(p, "integration-readiness")
         ck("integration: cutover form not offered", await rc.get_by_label("Type CUTOVER").count() == 0 and "Cutover is disabled in this build" in txt, txt[-200:])
         await axe(p, "staff integration")
         await c.close()

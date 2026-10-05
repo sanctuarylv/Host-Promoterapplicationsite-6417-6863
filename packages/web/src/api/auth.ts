@@ -5,6 +5,11 @@ import { runableManagedAuth } from "@runablehq/managed-auth/server";
 import { createHash } from "node:crypto";
 import { db } from "./database";
 import { rateLimit } from "./crew/rate-limit";
+import { assertProductionSecrets, trustedOriginList } from "./crew/production";
+
+// Fail closed on the canonical deployment (crew.sanctuarylv.org) or NODE_ENV=production
+// when the auth secret is missing/short — Better Auth only enforces this when NODE_ENV=production.
+assertProductionSecrets();
 
 /**
  * Client-IP trust for Better Auth's rate limiter, aligned with CREW_TRUSTED_PROXY
@@ -50,10 +55,9 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "sqlite" }),
   emailAndPassword: { enabled: true, minPasswordLength: 10 },
   secret: process.env.BETTER_AUTH_SECRET,
-  trustedOrigins: (request) => {
-    const origin = request?.headers.get("origin");
-    return origin ? [origin] : ["*"];
-  },
+  // Explicit allow-list (crew/production.ts): canonical domain, WEBSITE_URL, public URL,
+  // CREW_EXTRA_TRUSTED_ORIGINS and local dev origins. The request's own Origin is never reflected.
+  trustedOrigins: trustedOriginList(),
   hooks: { before: signInGuard },
   advanced: { ipAddress: { ipAddressHeaders: [trustedIpHeader ?? "x-sanctuary-no-trusted-ip"] } },
   rateLimit: {

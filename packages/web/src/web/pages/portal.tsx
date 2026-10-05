@@ -11,6 +11,7 @@ import { Btn, Empty, ErrorNote, Loading, Panel, Tag, TextField, fmtDate, fmtDay,
 import { usePageMeta } from "../hooks/use-page-meta";
 import { NONPROFIT_ENTITY, PAID_ENTITY } from "../lib/pathways";
 import { useMe, useRedeemLink } from "../queries/session";
+import { LegalLinks } from "../components/crew/legal";
 import {
   useCompleteTraining,
   useReacknowledge,
@@ -174,6 +175,7 @@ function Offers({ data }: { data: Overview }) {
                         <Btn onClick={() => setDeclining(o.id)}>Decline</Btn>
                       </div>
                     )}
+                    <LegalLinks className="mt-3" keys={["groupDisclosure", "privacy", "retention"]} />
                     <ErrorNote error={respond.error} className="mt-3" />
                   </div>
                 )}
