@@ -1,7 +1,15 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { runableManagedAuth } from "@runablehq/managed-auth/server";
+import { createHash } from "node:crypto";
 import { db } from "./database";
+import { rateLimit } from "./crew/rate-limit";
+import { assertProductionSecrets, trustedOriginList } from "./crew/production";
+
+// Fail closed on the canonical deployment (crew.sanctuarylv.org) or NODE_ENV=production
+// when the auth secret is missing/short — Better Auth only enforces this when NODE_ENV=production.
+assertProductionSecrets();
 
 /**
  * Client-IP trust for Better Auth's rate limiter, aligned with CREW_TRUSTED_PROXY
@@ -18,6 +26,23 @@ const SHARED_FACTOR = 20;
 const sharedCeiling = (_req: Request, cur: { window: number; max: number }) => (trustedIpHeader ? cur : { window: cur.window, max: cur.max * SHARED_FACTOR });
 
 /**
+ * Per-ACCOUNT password-guessing guard, independent of client IP (which may be
+ * untrusted/shared — see above). Counts every email sign-in attempt for one
+ * normalized address in the shared DB limiter. Trade-off: someone hammering an
+ * address can delay that address's password sign-in for the window; Google
+ * sign-in is unaffected. Counters store only a hash of the address.
+ */
+export const SIGNIN_PER_EMAIL = { limit: 10, windowMs: 15 * 60_000 };
+const signInGuard = createAuthMiddleware(async (ctx) => {
+  if (ctx.path !== "/sign-in/email") return;
+  const email = String((ctx.body as { email?: unknown } | undefined)?.email ?? "").trim().toLowerCase();
+  if (!email) return;
+  const key = `signin-email:${createHash("sha256").update(email).digest("hex").slice(0, 32)}`;
+  const r = await rateLimit(key, SIGNIN_PER_EMAIL.limit, SIGNIN_PER_EMAIL.windowMs);
+  if (!r.ok) throw new APIError("TOO_MANY_REQUESTS", { message: "Too many sign-in attempts for this account. Try again later or use Google sign-in." });
+});
+
+/**
  * Individual sign-in for staff and workers (Better Auth).
  * - Email + password (no automatic privileges — an account alone grants nothing).
  * - Runable managed Google sign-in.
@@ -30,10 +55,10 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "sqlite" }),
   emailAndPassword: { enabled: true, minPasswordLength: 10 },
   secret: process.env.BETTER_AUTH_SECRET,
-  trustedOrigins: (request) => {
-    const origin = request?.headers.get("origin");
-    return origin ? [origin] : ["*"];
-  },
+  // Explicit allow-list (crew/production.ts): canonical domain, WEBSITE_URL, public URL,
+  // CREW_EXTRA_TRUSTED_ORIGINS and local dev origins. The request's own Origin is never reflected.
+  trustedOrigins: trustedOriginList(),
+  hooks: { before: signInGuard },
   advanced: { ipAddress: { ipAddressHeaders: [trustedIpHeader ?? "x-sanctuary-no-trusted-ip"] } },
   rateLimit: {
     enabled: true,

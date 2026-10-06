@@ -37,7 +37,10 @@ export default function CampaignsPage() {
                         utm_campaign={c.code} · starts {fmtDay(`${c.start_date}T12:00:00`)} · owner {c.owner_label ?? "—"}
                       </p>
                     </div>
-                    <Tag tone={c.status === "running" ? "solid" : "default"}>{humanize(c.status)}</Tag>
+                    <div className="flex gap-2">
+                      {c.is_planning_seed && <Tag tone="warn">Planning seed</Tag>}
+                      <Tag tone={c.status === "running" ? "solid" : "default"}>{humanize(c.status)}</Tag>
+                    </div>
                   </li>
                 ))}
               </ul>

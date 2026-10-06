@@ -51,6 +51,20 @@ if (import.meta.main) {
   check("admin templates.list", await outcome(admin.templates.list()), "OK");
   check("admin events.list", await outcome(admin.events.list()), "OK");
   check("admin integration.state", await outcome(admin.integration.state()), "OK");
+  const rd = await admin.integration.readiness();
+  check("readiness canonical origin", rd.canonicalOrigin, "https://crew.sanctuarylv.org");
+  check("readiness: Command Center never PASS", rd.checks.find((c) => c.key === "command_center")?.state ?? "missing", "blocked_external");
+  check("readiness has no auth secret value", String(!JSON.stringify(rd).includes(process.env.BETTER_AUTH_SECRET || "\u0000never")), "true");
+  await sleep(4000);
+
+  // Origin allow-list: a foreign Origin is rejected before credentials are checked.
+  const foreign = await fetch(`${ORIGIN}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://evil.example" },
+    body: JSON.stringify({ email: "admin.test@example.com", password: PASSWORD }),
+  });
+  check("foreign Origin sign-in -> 403", String(foreign.status), "403");
+  check("foreign Origin gets no token", String(foreign.headers.get("set-auth-token") === null), "true");
   await sleep(4000);
 
   const workerTok = await signIn("worker.test@example.com");

@@ -3,7 +3,9 @@ import { Link } from "wouter";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { track } from "../../lib/analytics";
-import { SOCIAL_LINKS, PRIVACY_URL } from "../../lib/site-config";
+import { SOCIAL_LINKS } from "../../lib/site-config";
+import { NONPROFIT_ENTITY, PAID_ENTITY } from "../../lib/pathways";
+import { LegalLinks } from "./legal";
 
 export type RoleChoice = "host" | "promoter" | "both";
 
@@ -177,14 +179,13 @@ export function SiteFooter() {
         </div>
       </div>
       <div className="mx-auto flex max-w-[1600px] flex-col gap-3 border-t border-white/10 px-5 py-6 text-xs text-white/60 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-12">
-        <p>© {new Date().getFullYear()} Sanctuary LV · Las Vegas, Nevada</p>
-        {PRIVACY_URL ? (
-          <a href={PRIVACY_URL} className="hover:text-white">
-            Privacy
-          </a>
-        ) : (
-          <span>Privacy policy — link pending</span>
-        )}
+        <div className="space-y-1">
+          <p>© {new Date().getFullYear()} Sanctuary LV · Las Vegas, Nevada</p>
+          <p data-testid="operator-note">
+            Paid Host, Promoter and event-crew opportunities: {PAID_ENTITY}. Volunteer / Serve Team: {NONPROFIT_ENTITY}.
+          </p>
+        </div>
+        <LegalLinks keys={["privacy", "terms", "retention"]} />
       </div>
     </footer>
   );

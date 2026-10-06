@@ -15,10 +15,12 @@ import { db } from "../database";
 import { crewApplications, crewOutbox, type CrewApplicationRow } from "../database/schema";
 import { RETRYABLE, sendOperation, toCommandCenterPayload, type ErrorClass } from "./command-center";
 import { getCrewConfig } from "./config";
+import { endpointFingerprint } from "./integration";
 import { audit, type Actor, SYSTEM } from "../shared/audit";
 import { sha256, uuid } from "../shared/ids";
 
-const CLAIM_MS = 60_000;
+/** A claim must outlive the request timeout so a slow-but-live worker is not overtaken mid-request. */
+const claimMs = () => Math.max(60_000, getCrewConfig().commandCenter.timeoutMs * 2 + 10_000);
 const BASE_DELAY_MS = 30_000;
 const MAX_DELAY_MS = 6 * 60 * 60_000;
 
@@ -92,7 +94,7 @@ export async function enqueueStatusChange(exec: Exec, applicationId: string, rev
 export async function claim(id: string, workerId: string, now = new Date()) {
   const rows = await db
     .update(crewOutbox)
-    .set({ status: "processing", claimed_by: workerId, claim_expires_at: new Date(now.getTime() + CLAIM_MS), updated_at: now })
+    .set({ status: "processing", claimed_by: workerId, claim_expires_at: new Date(now.getTime() + claimMs()), updated_at: now })
     .where(
       and(
         eq(crewOutbox.id, id),
@@ -107,11 +109,21 @@ export async function claim(id: string, workerId: string, now = new Date()) {
   return rows.length === 1;
 }
 
-/** Process one claimed row. Only the claimer may record the outcome. */
-export async function processOne(id: string, workerId: string): Promise<"synced" | "failed" | "dead" | "skipped"> {
-  if (!(await claim(id, workerId))) return "skipped";
+export type ProcessResult = "synced" | "failed" | "dead" | "held" | "skipped" | "lost_claim";
+
+/**
+ * Process one claimed row. Only the current claimer may record the outcome:
+ * every write after the network call is conditional on (claimed_by = me,
+ * status = processing). A worker whose claim expired and was taken over gets
+ * "lost_claim" and touches NOTHING — no outbox outcome, no application mirror,
+ * no audit row — so a stale processor can never overwrite the winner.
+ */
+export async function processOne(id: string, workerId: string, now0 = new Date()): Promise<ProcessResult> {
+  if (!(await claim(id, workerId, now0))) return "skipped";
   const [row] = await db.select().from(crewOutbox).where(eq(crewOutbox.id, id)).limit(1);
   if (!row) return "skipped";
+  // Bind the receipt to the endpoint that issued it (checked by recordRoundTrip).
+  const endpoint = endpointFingerprint();
   const res = await sendOperation({
     operation: row.operation,
     idempotencyKey: row.idempotency_key,
@@ -123,7 +135,7 @@ export async function processOne(id: string, workerId: string): Promise<"synced"
   const attempts = row.attempts + 1;
   const mine = and(eq(crewOutbox.id, id), eq(crewOutbox.claimed_by, workerId), eq(crewOutbox.status, "processing"));
   if (res.ok) {
-    await db
+    const won = await db
       .update(crewOutbox)
       .set({
         status: "synced",
@@ -137,20 +149,22 @@ export async function processOne(id: string, workerId: string): Promise<"synced"
         claim_expires_at: null,
         updated_at: now,
       })
-      .where(mine);
+      .where(mine)
+      .returning({ id: crewOutbox.id });
+    if (won.length !== 1) return "lost_claim";
     if (row.operation === "application.create") {
       await db
         .update(crewApplications)
         .set({ sync_status: "synced", synced_at: now, external_id: res.canonicalId, sync_error: null, sync_attempts: attempts, authority: "canonical_mirror" })
         .where(eq(crewApplications.id, row.aggregate_id));
     }
-    await audit(db, SYSTEM, { entityType: "outbox", entityId: id, action: "outbox.synced", to: res.canonicalId, data: { receipt: res.receiptId, replay: res.replay, attempts } });
+    await audit(db, SYSTEM, { entityType: "outbox", entityId: id, action: "outbox.synced", to: res.canonicalId, data: { receipt: res.receiptId, replay: res.replay, attempts, endpoint } });
     return "synced";
   }
   const cls: ErrorClass = res.errorClass;
   const retryable = RETRYABLE.has(cls) && attempts < row.max_attempts;
   const status = cls === "not_configured" ? "held" : retryable ? "failed" : "dead";
-  await db
+  const won = await db
     .update(crewOutbox)
     .set({
       status,
@@ -162,14 +176,17 @@ export async function processOne(id: string, workerId: string): Promise<"synced"
       claim_expires_at: null,
       updated_at: now,
     })
-    .where(mine);
+    .where(mine)
+    .returning({ id: crewOutbox.id });
+  if (won.length !== 1) return "lost_claim";
   if (row.operation === "application.create") {
     await db
       .update(crewApplications)
       .set({ sync_status: cls === "not_configured" ? "not_configured" : "failed", sync_error: `${cls}: ${res.error}`.slice(0, 200), sync_attempts: attempts })
       .where(eq(crewApplications.id, row.aggregate_id));
   }
-  return status === "dead" ? "dead" : "failed";
+  await audit(db, SYSTEM, { entityType: "outbox", entityId: id, action: `outbox.${status}`, data: { errorClass: cls, attempts: cls === "not_configured" ? row.attempts : attempts } });
+  return status;
 }
 
 /** Drain due rows (bounded). Safe to run concurrently from several instances. */
@@ -190,9 +207,9 @@ export async function drainDue(limit = 10, workerId = `w-${uuid().slice(0, 8)}`)
     )
     .orderBy(crewOutbox.next_attempt_at)
     .limit(limit);
-  const results: string[] = [];
+  const results: ProcessResult[] = [];
   for (const d of due) results.push(await processOne(d.id, workerId));
-  return { processed: results.filter((r) => r !== "skipped").length, results };
+  return { processed: results.filter((r) => r !== "skipped" && r !== "lost_claim").length, results };
 }
 
 /**
@@ -205,7 +222,7 @@ export async function manualRetry(id: string, actor: Actor, reason: string) {
   if (!row) return { ok: false as const, error: "not_found" };
   if (row.status === "synced" || row.status === "processing") return { ok: false as const, error: `cannot_retry_${row.status}` };
   const now = new Date();
-  await db
+  const updated = await db
     .update(crewOutbox)
     .set({
       status: "pending",
@@ -213,7 +230,10 @@ export async function manualRetry(id: string, actor: Actor, reason: string) {
       max_attempts: row.attempts >= row.max_attempts ? row.attempts + 1 : row.max_attempts,
       updated_at: now,
     })
-    .where(and(eq(crewOutbox.id, id), eq(crewOutbox.status, row.status)));
+    .where(and(eq(crewOutbox.id, id), eq(crewOutbox.status, row.status), eq(crewOutbox.attempts, row.attempts)))
+    .returning({ id: crewOutbox.id });
+  // Lost a race with a worker or another operator: report it, write no audit claiming a retry happened.
+  if (updated.length !== 1) return { ok: false as const, error: "state_changed_retry_again" };
   await audit(db, actor, { entityType: "outbox", entityId: id, action: "outbox.manual_retry", from: row.status, to: "pending", note: reason, data: { attempts: row.attempts, lastErrorClass: row.last_error_class } });
   return { ok: true as const };
 }

@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, countDistinct, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, count, countDistinct, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { staffProc } from "../middleware/auth";
 import { db } from "../database";
 import {
@@ -21,10 +21,16 @@ import { actorOf, requireCan } from "../shared/permissions";
 import { audit } from "../shared/audit";
 import { guestKey, opaqueToken, sha256, uuid } from "../shared/ids";
 import { NO_CREDENTIAL_BLOCKER, assignmentReadiness, credentialHash } from "../ops/readiness";
-import { computeMinutes } from "../ops/attendance";
+import { computeMinutes, isCheckedIn } from "../ops/attendance";
 import { opsCredentials } from "../database/schema";
+import { ticketingFixturesEnabled } from "../crew/production";
 
 const id = z.string().min(1).max(64);
+
+/** Synthetic ticketing data is never allowed on the canonical production deployment (crew/production.ts). */
+function assertFixtures() {
+  if (!ticketingFixturesEnabled()) throw new ORPCError("FORBIDDEN", { message: "Ticketing fixtures are disabled on this deployment. Live ticketing is not connected." });
+}
 
 async function loadAssignment(assignmentId: string) {
   const [a] = await db.select().from(opsAssignments).where(eq(opsAssignments.id, assignmentId)).limit(1);
@@ -85,19 +91,32 @@ export const credentials = {
 
   /** Door/staff check: verifies a scanned credential and (optionally) records a check-in. */
   verify: staffProc.input(z.object({ eventId: id, token: z.string().min(10).max(200), recordCheckIn: z.boolean().default(false) })).handler(async ({ input, context }) => {
+    // Permission for THIS door first, so an unauthorised caller learns nothing about tokens.
+    requireCan(context.principal, "attendance.record", { eventId: input.eventId, departmentKey: null });
     const [c] = await db.select().from(opsCredentials).where(eq(opsCredentials.token_hash, sha256(input.token.trim()))).limit(1);
     if (!c) return { result: "unknown" as const };
-    requireCan(context.principal, "attendance.record", { eventId: c.event_id, departmentKey: null });
     if (c.event_id !== input.eventId) return { result: "wrong_event" as const };
     if (c.revoked_at) return { result: "revoked" as const };
     if (c.expires_at < new Date()) return { result: "expired" as const };
     const [asg] = await db.select({ status: opsAssignments.status }).from(opsAssignments).where(eq(opsAssignments.id, c.assignment_id)).limit(1);
     if (asg?.status !== "approved") return { result: "revoked" as const };
     const [p] = await db.select({ f: crewPeople.first_name, l: crewPeople.last_name }).from(crewPeople).where(eq(crewPeople.id, c.person_id)).limit(1);
+    let checkIn: "not_requested" | "recorded" | "already_checked_in" = "not_requested";
     if (input.recordCheckIn) {
-      await db.insert(opsAttendance).values({ id: uuid(), assignment_id: c.assignment_id, event_id: c.event_id, person_id: c.person_id, kind: "check_in", at_utc: new Date(), source: "credential_scan", recorded_by: context.principal.userId });
+      const log = await db
+        .select({ id: opsAttendance.id, kind: opsAttendance.kind, at_utc: opsAttendance.at_utc, corrects_id: opsAttendance.corrects_id })
+        .from(opsAttendance)
+        .where(eq(opsAttendance.assignment_id, c.assignment_id));
+      // Repeated scans while checked in append nothing. (Two truly simultaneous
+      // scans can still both append; computeMinutes keeps the first check-in,
+      // so hours are not corrupted and the duplicate stays as evidence.)
+      if (isCheckedIn(log)) checkIn = "already_checked_in";
+      else {
+        await db.insert(opsAttendance).values({ id: uuid(), assignment_id: c.assignment_id, event_id: c.event_id, person_id: c.person_id, kind: "check_in", at_utc: new Date(), source: "credential_scan", recorded_by: context.principal.userId });
+        checkIn = "recorded";
+      }
     }
-    return { result: "valid" as const, name: p ? `${p.f} ${p.l}` : "—", zones: c.zones, assignmentId: c.assignment_id };
+    return { result: "valid" as const, name: p ? `${p.f} ${p.l}` : "—", zones: c.zones, assignmentId: c.assignment_id, checkIn };
   }),
 };
 
@@ -147,7 +166,12 @@ export const promoters = {
     if (!asg.some((a) => a.role.startsWith("promoter"))) throw new ORPCError("PRECONDITION_FAILED", { message: "Person needs an approved Promoter assignment for this event." });
     const code = `P${opaqueToken(5).replace(/[-_]/g, "x").slice(0, 7).toUpperCase()}`;
     const linkId = uuid();
-    await db.insert(guestPromoterLinks).values({ id: linkId, event_id: input.eventId, person_id: input.personId, code, valid_from: new Date(), approved_by: context.principal.userId });
+    const made = await db
+      .insert(guestPromoterLinks)
+      .values({ id: linkId, event_id: input.eventId, person_id: input.personId, code, valid_from: new Date(), approved_by: context.principal.userId })
+      .onConflictDoNothing({ target: [guestPromoterLinks.event_id, guestPromoterLinks.person_id] })
+      .returning({ id: guestPromoterLinks.id });
+    if (!made.length) throw new ORPCError("CONFLICT", { message: "This promoter already has a link for this event." });
     await audit(db, actorOf(context.principal), { entityType: "event", entityId: input.eventId, action: "promoter_link.create", data: { linkId, personId: input.personId } });
     return { id: linkId, code };
   }),
@@ -164,13 +188,23 @@ export const promoters = {
   /** TEST FIXTURE ONLY: register a synthetic guest (stored as an HMAC key, never the address). */
   fixtureRegister: staffProc.input(z.object({ eventId: id, email: z.email().max(254), code: z.string().max(20).nullable() })).handler(async ({ input, context }) => {
     requireCan(context.principal, "promoters.manage", { eventId: input.eventId });
+    assertFixtures();
     const key = guestKey(input.email);
-    const [link] = input.code
-      ? await db.select().from(guestPromoterLinks).where(and(eq(guestPromoterLinks.code, input.code), eq(guestPromoterLinks.event_id, input.eventId), eq(guestPromoterLinks.status, "approved"))).limit(1)
+    const at = new Date();
+    // Attribution only to a link that is approved, for THIS event, and already in
+    // effect at registration time. Unknown/revoked/other-event codes register the
+    // guest unattributed. First registration per guest per event wins (unique key).
+    const code = input.code?.trim().toUpperCase() || null;
+    const [link] = code
+      ? await db
+          .select()
+          .from(guestPromoterLinks)
+          .where(and(eq(guestPromoterLinks.code, code), eq(guestPromoterLinks.event_id, input.eventId), eq(guestPromoterLinks.status, "approved"), lte(guestPromoterLinks.valid_from, at)))
+          .limit(1)
       : [];
     const rows = await db
       .insert(guestRegistrations)
-      .values({ id: uuid(), event_id: input.eventId, guest_key: key, promoter_link_id: link?.id ?? null, registered_at: new Date(), source: "test_fixture" })
+      .values({ id: uuid(), event_id: input.eventId, guest_key: key, promoter_link_id: link?.id ?? null, registered_at: at, source: "test_fixture" })
       .onConflictDoNothing({ target: [guestRegistrations.event_id, guestRegistrations.guest_key] })
       .returning({ id: guestRegistrations.id });
     return { created: rows.length === 1, attributed: Boolean(link), registrationId: rows[0]?.id ?? null };
@@ -179,12 +213,19 @@ export const promoters = {
   /** TEST FIXTURE ONLY: record an admission scan. First scan = admitted, later scans = re-entry (not double counted). */
   fixtureScan: staffProc.input(z.object({ eventId: id, registrationId: id })).handler(async ({ input, context }) => {
     requireCan(context.principal, "promoters.manage", { eventId: input.eventId });
+    assertFixtures();
     const [reg] = await db.select().from(guestRegistrations).where(and(eq(guestRegistrations.id, input.registrationId), eq(guestRegistrations.event_id, input.eventId))).limit(1);
     if (!reg) throw new ORPCError("NOT_FOUND");
-    const prev = await db.select({ id: guestScans.id }).from(guestScans).where(and(eq(guestScans.registration_id, reg.id), eq(guestScans.result, "admitted"))).limit(1);
-    const result = prev.length ? "reentry" : "admitted";
-    await db.insert(guestScans).values({ id: uuid(), event_id: input.eventId, registration_id: reg.id, result, scanned_at: new Date(), scanned_by: context.principal.userId });
-    return { result };
+    // One statement decides first admission vs re-entry, so concurrent scans of the
+    // same registration cannot both be "admitted" (SQLite serialises the write).
+    const scanId = uuid();
+    await db.run(sql`
+      INSERT INTO guest_scans (id, event_id, registration_id, result, scanned_at, scanned_by)
+      SELECT ${scanId}, ${input.eventId}, ${reg.id},
+             CASE WHEN EXISTS (SELECT 1 FROM guest_scans WHERE registration_id = ${reg.id} AND result = 'admitted') THEN 'reentry' ELSE 'admitted' END,
+             ${Date.now()}, ${context.principal.userId}`);
+    const [row] = await db.select({ result: guestScans.result }).from(guestScans).where(eq(guestScans.id, scanId)).limit(1);
+    return { result: (row?.result ?? "reentry") as "admitted" | "reentry" };
   }),
 
   /** Aggregates only — never guest identities. Denominators included. */
@@ -208,8 +249,11 @@ export const promoters = {
     const ad = new Map(admitted.map((x) => [x.link, Number(x.n)]));
     const totalRegs = regs.reduce((s, x) => s + Number(x.n), 0);
     const totalAdm = admitted.reduce((s, x) => s + Number(x.n), 0);
+    const [fx] = await db.select({ n: count() }).from(guestRegistrations).where(and(eq(guestRegistrations.event_id, input.eventId), eq(guestRegistrations.source, "test_fixture")));
     return {
       source: "test_fixture_or_import — no live ticketing integration",
+      live: false as const,
+      fixtureRegistrations: Number(fx?.n ?? 0),
       totals: { registrations: totalRegs, uniqueAdmitted: totalAdm, reentries: Number(reentries[0]?.n ?? 0), unattributedRegistrations: r.get(null) ?? 0 },
       byPromoter: links.map((l) => {
         const p = people.find((x) => x.id === l.person_id);

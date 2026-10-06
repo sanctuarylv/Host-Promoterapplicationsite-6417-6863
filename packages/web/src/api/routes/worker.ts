@@ -169,7 +169,12 @@ export const worker = {
     const [a] = await db.select().from(crewApplications).where(and(eq(crewApplications.id, input.applicationId), eq(crewApplications.person_id, context.personId))).limit(1);
     if (!a) throw new ORPCError("NOT_FOUND");
     const now = new Date();
-    await db.update(crewApplications).set({ consent_version: CONSENT_VERSION, required_consent_at: now, revision: a.revision + 1, updated_at: now }).where(and(eq(crewApplications.id, a.id), eq(crewApplications.revision, a.revision)));
+    const done = await db
+      .update(crewApplications)
+      .set({ consent_version: CONSENT_VERSION, required_consent_at: now, revision: a.revision + 1, updated_at: now })
+      .where(and(eq(crewApplications.id, a.id), eq(crewApplications.revision, a.revision)))
+      .returning({ id: crewApplications.id });
+    if (!done.length) throw new ORPCError("CONFLICT", { message: "Your application changed. Reload and try again." });
     await audit(db, workerActor(context.principal.userId), { entityType: "application", entityId: a.id, action: "consent.reacknowledge", from: a.consent_version, to: CONSENT_VERSION, revision: a.revision + 1 });
     return { ok: true };
   }),
@@ -188,13 +193,18 @@ export const worker = {
       const res = await db
         .update(crewOffers)
         .set({ status: to, revision: o.revision + 1, responded_at: new Date(), response_note: input.note ?? null, updated_at: new Date() })
-        .where(and(eq(crewOffers.id, o.id), eq(crewOffers.revision, input.revision), eq(crewOffers.status, "issued")))
+        .where(and(eq(crewOffers.id, o.id), eq(crewOffers.revision, input.revision), eq(crewOffers.status, "issued"), gt(crewOffers.expires_at, new Date())))
         .returning({ id: crewOffers.id });
       if (!res.length) throw new ORPCError("CONFLICT", { message: "This offer changed. Reload to see the latest version." });
       try {
         await transition({ applicationId: app.id, to: input.accept ? "accepted" : "selected", expectedRevision: app.revision, actor: workerActor(context.principal.userId), note: `Offer ${o.id} ${to} by applicant`, via: "worker", mode: state.mode });
       } catch (e) {
-        await db.update(crewOffers).set({ status: "issued", revision: o.revision + 2, responded_at: null, updated_at: new Date() }).where(eq(crewOffers.id, o.id));
+        // Compensate ONLY our own write: if staff changed the offer meanwhile
+        // (e.g. cancelled it), that newer state wins and is left untouched.
+        await db
+          .update(crewOffers)
+          .set({ status: "issued", revision: o.revision + 2, responded_at: null, response_note: null, updated_at: new Date() })
+          .where(and(eq(crewOffers.id, o.id), eq(crewOffers.revision, o.revision + 1), eq(crewOffers.status, to)));
         throw e;
       }
       await audit(db, workerActor(context.principal.userId), { entityType: "offer", entityId: o.id, action: `offer.${to}`, from: "issued", to, revision: o.revision + 1 });

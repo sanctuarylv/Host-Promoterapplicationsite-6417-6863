@@ -15,7 +15,8 @@
 		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 		<link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
 
-		<!-- Open Graph / Twitter. Set VITE_SITE_URL in .env so these become absolute URLs. -->
+		<!-- Canonical + Open Graph / Twitter. VITE_SITE_URL defaults to https://crew.sanctuarylv.org (vite.config.ts). -->
+		<link rel="canonical" href="%VITE_SITE_URL%/crew" />
 		<meta property="og:type" content="website" />
 		<meta property="og:site_name" content="Sanctuary LV" />
 		<meta property="og:title" content="Join the Sanctuary LV Host + Promoter Team" />

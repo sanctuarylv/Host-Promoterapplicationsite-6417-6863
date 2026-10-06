@@ -1,4 +1,11 @@
 /** Attendance math over the append-only log (pure — unit tested). */
+/** Is a shift currently open (checked in, not yet checked out)? */
+export function isCheckedIn(log: { id: string; kind: string; at_utc: Date; corrects_id: string | null }[]) {
+  const voided = new Set(log.filter((l) => l.kind === "void" && l.corrects_id).map((l) => l.corrects_id!));
+  const live = log.filter((l) => l.kind !== "void" && !voided.has(l.id) && (l.kind === "check_in" || l.kind === "check_out")).sort((a, b) => a.at_utc.getTime() - b.at_utc.getTime());
+  return live.length > 0 && live[live.length - 1].kind === "check_in";
+}
+
 /** Compute worked minutes from the append-only log (voided entries excluded). */
 export function computeMinutes(log: { id: string; kind: string; at_utc: Date; corrects_id: string | null }[]) {
   const voided = new Set(log.filter((l) => l.kind === "void" && l.corrects_id).map((l) => l.corrects_id!));
@@ -10,7 +17,12 @@ export function computeMinutes(log: { id: string; kind: string; at_utc: Date; co
   for (const l of live) {
     const t = l.at_utc.getTime();
     if (l.kind === "check_in") {
-      if (inAt !== null) issues.push("Double check-in");
+      // A repeated scan while already checked in keeps the FIRST check-in: a
+      // second door scan must never shorten (or reset) recorded time.
+      if (inAt !== null) {
+        issues.push("Double check-in");
+        continue;
+      }
       inAt = t;
     } else if (l.kind === "break_start" && inAt !== null) {
       breakAt = t;

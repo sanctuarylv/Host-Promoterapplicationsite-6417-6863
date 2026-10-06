@@ -14,6 +14,7 @@
  * The Runable edge header contract is not documented here; until verified,
  * leave "none" (see docs/RUNBOOK_V2.md → externally blocked).
  */
+import { isIP } from "node:net";
 import { sql } from "drizzle-orm";
 import { db } from "../database";
 import { crewRateLimits } from "../database/schema";
@@ -34,8 +35,9 @@ export function clientIdentity(headers: Headers): ClientIdentity {
     const hops = (headers.get("x-forwarded-for") ?? "").split(",").map((h) => h.trim()).filter(Boolean);
     ip = hops.length >= n ? hops[hops.length - n]! : null;
   }
-  ip = ip?.trim() ?? null;
-  if (ip && /^[0-9a-f.:]{3,45}$/i.test(ip)) return { key: `ip:${ip}`, trusted: true };
+  ip = ip?.trim().toLowerCase() ?? null;
+  // Must parse as a real IPv4/IPv6 literal — anything else is treated as untrusted.
+  if (ip && isIP(ip) !== 0) return { key: `ip:${ip}`, trusted: true };
   return { key: "untrusted", trusted: false };
 }
 

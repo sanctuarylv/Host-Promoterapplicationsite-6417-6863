@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Btn, Empty, ErrorNote, Loading, PageTitle, Panel, SelectField, Stat, Tag, TextField, fmtDate, humanize } from "../../components/console/ui";
 import { usePageMeta } from "../../hooks/use-page-meta";
-import { useDrainNow, useIntegrationAudit, useIntegrationState, useOutbox, useReconcile, useRecordCutover, useRecordRoundTrip, useRetryOutbox } from "../../queries/integration";
+import { useDrainNow, useIntegrationAudit, useIntegrationState, useReadiness, useOutbox, useReconcile, useRecordCutover, useRecordRoundTrip, useRetryOutbox } from "../../queries/integration";
 
 const STATUSES = ["held", "pending", "processing", "synced", "failed", "dead"] as const;
 type OutboxStatus = (typeof STATUSES)[number];
@@ -119,7 +119,7 @@ function Outbox() {
   );
 }
 
-function Reconcile({ quarantineDefault }: { quarantineDefault?: number }) {
+function Reconcile({ quarantineDefault, cutoverBlocked }: { quarantineDefault?: number; cutoverBlocked: string | null }) {
   const rec = useReconcile();
   const cut = useRecordCutover();
   const [ack, setAck] = useState("");
@@ -143,7 +143,10 @@ function Reconcile({ quarantineDefault }: { quarantineDefault?: number }) {
           <p className="break-all font-mono text-xs text-white/65">Fingerprint {r.fingerprint}</p>
           <details>
             <summary className="min-h-11 cursor-pointer py-2 text-sm">Items ({r.items.length})</summary>
-            <ul className="mt-2 max-h-80 space-y-1 overflow-y-auto text-xs" tabIndex={0} aria-label="Reconciliation preview — scroll vertically">
+            <ul className="mt-2 max-h-80 space-y-1 overflow-y-auto text-xs"
+              // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable (axe scrollable-region-focusable, WCAG 2.1.1)
+              tabIndex={0}
+              aria-label="Reconciliation preview — scroll vertically">
               {r.items.map((i) => (
                 <li key={i.id} className="border border-white/10 px-3 py-1.5">
                   <Tag tone={i.action === "quarantine" ? "warn" : "muted"}>{i.action}</Tag> <span className="font-mono">{i.id.slice(0, 8)}</span> · {humanize(i.localStatus)}
@@ -153,6 +156,11 @@ function Reconcile({ quarantineDefault }: { quarantineDefault?: number }) {
               ))}
             </ul>
           </details>
+          {cutoverBlocked ? (
+            <output className="block border-t border-white/10 pt-4 text-sm text-amber-200/90">
+              {cutoverBlocked}. The dry run above is still useful for review; nothing can be cut over yet.
+            </output>
+          ) : (
           <form
             className="grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-3 sm:items-end"
             onSubmit={(e) => {
@@ -168,6 +176,7 @@ function Reconcile({ quarantineDefault }: { quarantineDefault?: number }) {
             <p className="text-xs text-white/60 sm:col-span-3">Requires a verified round trip from a real Command Center acknowledgement. It records a boundary only; no data is moved.</p>
             <ErrorNote error={cut.error} className="sm:col-span-3" />
           </form>
+          )}
         </div>
       )}
     </Panel>
@@ -185,7 +194,10 @@ function Audit() {
       ) : q.data.length === 0 ? (
         <Empty>No audit entries.</Empty>
       ) : (
-        <ul className="max-h-[28rem] space-y-1 overflow-y-auto text-xs" tabIndex={0} aria-label="Audit entries — scroll vertically">
+        <ul className="max-h-[28rem] space-y-1 overflow-y-auto text-xs"
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable (axe scrollable-region-focusable, WCAG 2.1.1)
+          tabIndex={0}
+          aria-label="Audit entries — scroll vertically">
           {q.data.map((a) => (
             <li key={a.id} className="border border-white/10 px-3 py-1.5">
               <span className="text-white/65">{fmtDate(a.created_at)}</span> · <span className="font-medium">{a.action}</span> · {a.entity_type}:{a.entity_id.slice(0, 8)} · {a.actor_label}
@@ -194,6 +206,55 @@ function Audit() {
             </li>
           ))}
         </ul>
+      )}
+    </Panel>
+  );
+}
+
+const READINESS_LABEL = {
+  pass: "Pass",
+  blocked_user: "Blocked — user input required",
+  blocked_external: "Blocked — external system",
+  not_started: "Not started",
+} as const;
+
+function Readiness() {
+  const q = useReadiness();
+  return (
+    <Panel id="readiness" title="Production readiness" eyebrow="Configuration presence only — no secret values or IP addresses are shown">
+      {q.isPending ? (
+        <Loading />
+      ) : q.error || !q.data ? (
+        <ErrorNote error={q.error} />
+      ) : (
+        <>
+          <p className="text-sm text-white/75">
+            Canonical domain: <span className="font-mono">{q.data.canonicalOrigin}</span> · Trusted auth origins: <span className="font-mono text-xs">{q.data.trustedOrigins.join(", ")}</span>
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="cx-table min-w-[720px]" data-testid="readiness-table">
+              <caption className="sr-only">Production readiness checks</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Check</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {q.data.checks.map((c) => (
+                  <tr key={c.key} data-check={c.key} data-state={c.state}>
+                    <td>{c.label}</td>
+                    <td>
+                      <Tag tone={c.state === "pass" ? "solid" : c.state === "not_started" ? "muted" : "warn"}>{READINESS_LABEL[c.state]}</Tag>
+                    </td>
+                    <td className="text-xs text-white/75">{c.detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </Panel>
   );
@@ -233,8 +294,9 @@ export default function IntegrationPage() {
         <span className="text-xs text-white/60">Only works in forward mode with a complete configuration. Otherwise nothing is sent.</span>
       </div>
       <ErrorNote error={drain.error} />
+      <Readiness />
       <Outbox />
-      <Reconcile />
+      <Reconcile cutoverBlocked={s.cutoverBlockedReason} />
       <Audit />
     </div>
   );

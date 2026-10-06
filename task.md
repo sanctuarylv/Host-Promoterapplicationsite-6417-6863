@@ -10,26 +10,23 @@ Source prompt: /home/user/Attachments/prompt_ml7nZl.txt (206 lines)
 - Command Center contract unknown → "proposed contract" adapter, strict parsing; pending labels.
 - Label every local record authority=local_staging. Never claim connected.
 
-## Stages
-- [ ] S0 baseline: build/lint/tsc recorded; Turso read-only backup; test DB; baseline migration snapshot
-- [ ] S1 reliability: 409/receipt strict; referral strict; cursor pagination+filters+population totals;
-      people identity + (person, opportunity) uniqueness; phone policy (flag, not merge); analytics allowlist;
-      shared DB rate limit + trusted proxy config; outbox (claim, backoff, classes, bounded, audit)
-- [ ] S2 copy: Sanctuary LV Group paid wording; nonprofit Serve Team separate pathway (/serve, own table,
-      consent, statuses); event content explained; future-opportunities label; consent v2 + provenance; new fields
-- [ ] S3 auth: Better Auth (email/pw + managed Google); staff memberships + scopes; worker link tokens;
-      legacy key limited/disabled after cutover; grant CLI
-- [ ] S4 recruiter: list/detail/timeline/reviewer/overdue/interviews/scorecards/decisions w/ prerequisites,
-      revision checks, audit; terms (approver) + offers; training modules/records
-- [ ] S5 worker portal: own apps, offers accept/decline (revision), invitations, training, call sheet, credential, attendance
-- [ ] S6 events: org chain (cycle-safe), templates (immutable versions, clone), After Dark seed (51/30),
-      venue allowances provisional/unknown, provider fulfillment, events UTC+tz, milestones, assignments w/ overlap,
-      readiness blockers, run of show, call sheet print, coverage, closeout
-- [ ] S7 credentials (opaque hashed, expiring, revoke), staff attendance append-only, promoter links,
-      guest registrations/admissions dedupe, aggregates
-- [ ] S8 campaigns: goals, owners, links/UTM/QR, assets, calendar, budget ($750 proposal), metrics w/ denominators
-- [ ] S9 integration console: modes local/connected/degraded, outbox view, reconciliation dry-run, cutover
-- [ ] S10 tests (16 items), screenshots, acceptance report
+## Status (2026-10-05)
+Implemented and tested **locally only**; nothing deployed, nothing connected, no production migration.
+Per-item evidence, commands and results: `docs/ACCEPTANCE_V2.md`. Operating procedure: `docs/RUNBOOK_V2.md`.
+
+| Stage | Scope | Status |
+|---|---|---|
+| S0 | baseline, read-only Turso backup, test DB, baseline migration | done (baseline = HEAD 8e7cffc; no v1 commit exists) |
+| S1 | reliability: receipts/409, referrals, pagination, identity, phone policy, analytics, rate limit, outbox | implemented, tested vs mock CC |
+| S2 | Group vs nonprofit copy, `/serve`, consent v2 + provenance | implemented, tested; official brand/legal assets pending |
+| S3 | Better Auth, staff memberships/scopes, explicit worker linking, legacy admin read-only, grant CLI | implemented, tested; managed Google unverified |
+| S4 | recruiter pipeline, terms/offers, training | implemented, tested |
+| S5 | worker portal | implemented, tested |
+| S6 | org chain, templates, After Dark seed 51/30, events, call sheet, coverage, closeout | implemented, tested; 36-role workbook not supplied |
+| S7 | credentials, attendance, promoter links, guest admissions | implemented, tested; live ticketing pending |
+| S8 | campaigns and metrics | implemented, tested |
+| S9 | integration console | implemented, tested; cutover disabled until the real CC contract |
+| S10 | tests, screenshots, acceptance report | done; CC round trip externally blocked |
 
 ## Decisions
 - Identity: crew_people (email-unique person) + crew_applications per (person, opportunity_key). Legacy rows → opportunity 'general_interest'.
@@ -39,3 +36,8 @@ Source prompt: /home/user/Attachments/prompt_ml7nZl.txt (206 lines)
 ## Progress log
 - 10-04: auth-schema generated (env sourced, DB=test). Schema split: schema-identity/recruiting/ops/campaigns. Migration 0001 generated, DROP of email_uq moved after replacement index; applied OK to copy of legacy snapshot (migrate-test.db, 45 tables, 7 legacy rows intact).
 - shared/{ids,audit,settings,permissions}.ts, DB rate limiter, middleware/auth.ts written (unverified).
+- 10-05: full verification round: lint clean, 3x tsc, build, unit 33, integration 6 suites, e2e 3 suites, browser 5 suites, migration rehearsal all pass. Fixed: 4 a11y lint errors, unreadable printed call sheet, unlabelled planning-seed campaigns.
+- 10-05 (later): production-readiness pass for https://crew.sanctuarylv.org (local only, not pushed): build forces NODE_ENV=production (main 447 kB),
+  explicit trustedOrigins allow-list, auth-secret guard, readiness table on /staff/integration, ticketing fixtures off on canonical +
+  labelled demo, legal placeholders (6 VITE_SANCTUARY_* keys), canonical/robots/sitemap, workbook dry-run validator,
+  docs: LEGAL_PLACEHOLDERS_V2, PRODUCTION_MIGRATION_CHECKLIST_V2, RUNBOOK §7.1/7.2/8/11/12, ACCEPTANCE production-readiness section.

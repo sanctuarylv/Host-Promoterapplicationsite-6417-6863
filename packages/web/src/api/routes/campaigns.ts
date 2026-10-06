@@ -9,13 +9,18 @@
 import { z } from "zod";
 import QRCode from "qrcode";
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { staffProc } from "../middleware/auth";
 import { db } from "../database";
-import { cmpBudgetLines, cmpCampaigns, cmpGoals, cmpLinks, cmpTasks, crewApplications } from "../database/schema";
+import { cmpBudgetLines, cmpCampaigns, cmpGoals, cmpLinks, cmpTasks } from "../database/schema";
 import { actorOf, can, requireCan } from "../shared/permissions";
 import { audit } from "../shared/audit";
 import { uuid } from "../shared/ids";
+import { campaignFunnel } from "../crew/campaign-metrics";
+import { ROLE_OPTIONS } from "../crew/contract";
+
+const ROLE_KEYS = ROLE_OPTIONS.map((o) => o.value) as [string, ...string[]];
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
 const id = z.string().min(1).max(64);
 const slug = z
@@ -79,7 +84,18 @@ export const campaigns = {
     return { rows, canWrite: can(context.principal, "campaigns.write") };
   }),
 
-  detail: staffProc.input(z.object({ id })).handler(async ({ input, context }) => {
+  detail: staffProc
+    .input(
+      z
+        .object({
+          id,
+          role: z.enum(ROLE_KEYS).nullish(),
+          from: ymd.nullish(),
+          to: ymd.nullish(),
+        })
+        .refine((v) => !v.from || !v.to || v.from <= v.to, { message: "The start date must be on or before the end date", path: ["to"] }),
+    )
+    .handler(async ({ input, context }) => {
     requireCan(context.principal, "campaigns.read");
     const c = await loadCampaign(input.id);
     const [goals, links, tasks, budget] = await Promise.all([
@@ -91,22 +107,8 @@ export const campaigns = {
     const base = publicBase();
     const linkRows = links.map((l) => ({ ...l, url: base ? trackedUrl(base, c.code, l) : null }));
 
-    // Metrics: applications attributed by utm_campaign = code. Denominators explicit.
-    const byRole = await db
-      .select({ role: crewApplications.role_interest, status: crewApplications.application_status, n: sql<number>`count(*)` })
-      .from(crewApplications)
-      .where(eq(crewApplications.utm_campaign, c.code))
-      .groupBy(crewApplications.role_interest, crewApplications.application_status);
-    const bySource = await db
-      .select({ source: crewApplications.utm_source, content: crewApplications.utm_content, n: sql<number>`count(*)` })
-      .from(crewApplications)
-      .where(eq(crewApplications.utm_campaign, c.code))
-      .groupBy(crewApplications.utm_source, crewApplications.utm_content);
-    const attributed = byRole.reduce((s, r) => s + Number(r.n), 0);
-    const [{ n: allApps } = { n: 0 }] = await db.select({ n: sql<number>`count(*)` }).from(crewApplications);
-    const selected = byRole
-      .filter((r) => ["selected", "offer_issued", "accepted", "event_ready"].includes(r.status))
-      .reduce((s, r) => s + Number(r.n), 0);
+    // Metrics: evidence-based funnel for the requested scope (see crew/campaign-metrics.ts).
+    const funnel = await campaignFunnel(c.code, { role: input.role ?? null, from: input.from ?? null, to: input.to ?? null }, budget);
 
     const sum = (k: "proposed_cents" | "approved_cents" | "actual_cents") => {
       const vals = budget.map((b) => b[k]);
@@ -128,17 +130,7 @@ export const campaigns = {
         actualCents: sum("actual_cents"),
         note: "Proposed figures are a plan, not approved spend. Nothing is spent from this workspace.",
       },
-      metrics: {
-        attributedApplications: { value: attributed, denominator: Number(allApps), denominatorLabel: "all applications in this store" },
-        selectedOrLater: { value: selected, denominator: attributed, denominatorLabel: "applications attributed to this campaign" },
-        clicks: { value: null, denominator: null, note: "Click/visit counts are not collected here — [TBD — VERIFIED DATA REQUIRED]" },
-        costPerApplicant: {
-          value: sum("actual_cents") !== null && attributed > 0 ? Math.round((sum("actual_cents") ?? 0) / attributed) : null,
-          note: "Shown only when actual spend is recorded and at least one applicant is attributed",
-        },
-        byRole: byRole.map((r) => ({ ...r, n: Number(r.n) })),
-        bySource: bySource.map((r) => ({ ...r, n: Number(r.n) })),
-      },
+      metrics: funnel,
       authority: "local_staging" as const,
       canWrite: can(context.principal, "campaigns.write"),
     };

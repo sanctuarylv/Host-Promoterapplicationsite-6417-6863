@@ -69,6 +69,12 @@ android
 
 # scripts (local-only provisioning)
 scripts/
+# ...but the web operator scripts (backfill, planning seed, staff grant, guard) are reviewed source.
+!packages/web/scripts/
 !packages/mobile/scripts/
 packages/mobile/scripts/*
 !packages/mobile/scripts/generate-ios-certs.py
+
+# test artifacts (screenshots, browser/axe outputs, rehearsal DBs live outside the repo)
+packages/web/tests/**/*.png
+packages/web/tests/**/axe.min.js
