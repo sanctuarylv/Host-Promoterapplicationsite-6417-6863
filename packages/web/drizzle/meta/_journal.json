@@ -15,6 +15,13 @@
       "when": 1791125184354,
       "tag": "0001_v2_people_pipeline_ops",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791304529578,
+      "tag": "0002_canonical_staffing_taxonomy",
+      "breakpoints": true
     }
   ]
 }

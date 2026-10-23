@@ -26,38 +26,68 @@ export type WorkbookReport = {
   ok: boolean;
 };
 
-/** Minimal RFC-4180 CSV parser (quoted fields, escaped quotes, CRLF). */
-export function parseCsv(text: string): WorkbookRow[] {
-  const records: string[][] = [];
+export type CsvTable = { header: string[]; rows: WorkbookRow[]; malformed: string[] };
+
+/**
+ * Minimal RFC-4180 CSV parser (quoted fields, escaped quotes, CRLF) that keeps
+ * the header and reports structural problems instead of guessing: an
+ * unterminated quote, a row with more fields than the header, or a duplicate /
+ * blank header name. A leading UTF-8 BOM is ignored.
+ */
+export function parseCsvTable(text: string): CsvTable {
+  const records: { line: number; fields: string[] }[] = [];
+  const malformed: string[] = [];
   let field = "";
   let rec: string[] = [];
   let quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
+  let line = 1;
+  let recLine = 1;
+  const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
     if (quoted) {
-      if (c === '"' && text[i + 1] === '"') {
+      if (c === '"' && src[i + 1] === '"') {
         field += '"';
         i++;
       } else if (c === '"') quoted = false;
-      else field += c;
+      else {
+        if (c === "\n") line++;
+        field += c;
+      }
     } else if (c === '"') quoted = true;
     else if (c === ",") {
       rec.push(field);
       field = "";
     } else if (c === "\n" || c === "\r") {
-      if (c === "\r" && text[i + 1] === "\n") i++;
+      if (c === "\r" && src[i + 1] === "\n") i++;
       rec.push(field);
       field = "";
-      if (rec.some((f) => f.trim() !== "")) records.push(rec);
+      if (rec.some((f) => f.trim() !== "")) records.push({ line: recLine, fields: rec });
       rec = [];
+      line++;
+      recLine = line;
     } else field += c;
   }
+  if (quoted) malformed.push(`unterminated quoted field starting on line ${recLine}`);
   rec.push(field);
-  if (rec.some((f) => f.trim() !== "")) records.push(rec);
-  const [header, ...body] = records;
-  if (!header) return [];
-  const keys = header.map((h) => h.trim().toLowerCase());
-  return body.map((r) => Object.fromEntries(keys.map((k, i) => [k, (r[i] ?? "").trim()])));
+  if (rec.some((f) => f.trim() !== "")) records.push({ line: recLine, fields: rec });
+  const [head, ...body] = records;
+  if (!head) return { header: [], rows: [], malformed };
+  const header = head.fields.map((h) => h.trim().toLowerCase());
+  const seen = new Set<string>();
+  for (const h of header) {
+    if (!h) malformed.push("blank header name");
+    else if (seen.has(h)) malformed.push(`duplicate header "${h}"`);
+    seen.add(h);
+  }
+  for (const r of body) if (r.fields.length > header.length) malformed.push(`line ${r.line}: ${r.fields.length} fields, header has ${header.length}`);
+  const rows = body.map((r) => Object.fromEntries(header.map((k, i) => [k, (r.fields[i] ?? "").trim()])));
+  return { header, rows, malformed };
+}
+
+/** Rows only (legacy callers). Use parseCsvTable when structure matters. */
+export function parseCsv(text: string): WorkbookRow[] {
+  return parseCsvTable(text).rows;
 }
 
 const KEY_RE = /^[a-z][a-z0-9_]{1,63}$/;

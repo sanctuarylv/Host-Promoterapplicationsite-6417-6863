@@ -11,6 +11,8 @@
  * never a secret value, a token or a client IP.
  */
 
+import { embeddedTaxonomy, TAXONOMY_STAGE_LABEL, type TaxonomyStage } from "../ops/staffing/status";
+
 /** Official production origin. No trailing slash. */
 export const CANONICAL_ORIGIN = "https://crew.sanctuarylv.org";
 
@@ -90,7 +92,23 @@ export function assertProductionSecrets(): void {
 }
 
 export type ReadinessState = "pass" | "blocked_user" | "blocked_external" | "not_started";
-export type ReadinessCheck = { key: string; label: string; state: ReadinessState; detail: string };
+export type ReadinessCheck = { key: string; label: string; state: ReadinessState; detail: string; stage?: TaxonomyStage; stage_label?: string };
+
+/**
+ * Readiness of the 36-role staffing taxonomy. Every reachable stage is
+ * blocked on the user: even a validated, reviewed source still needs an
+ * explicitly approved import. TaxonomyStage has no "imported" member, so this
+ * row cannot claim an import (ops/staffing/status.ts).
+ */
+export function taxonomyReadiness(stage: TaxonomyStage = embeddedTaxonomy().stage): ReadinessCheck {
+  const detail: Record<TaxonomyStage, string> = {
+    not_supplied: "Canonical staffing source not supplied — DRY RUN, nothing imported.",
+    validation_failed: "Canonical source failed validation — see /staff/taxonomy. DRY RUN, nothing imported.",
+    reconciliation_ready: "Source validates but its hash is not the reviewed source — re-review the reconciliation map. DRY RUN, nothing imported.",
+    import_pending_approval: "36 roles / 66 baseline seats validated against the reviewed map. Import pending approval — DRY RUN, nothing imported (review at /staff/taxonomy).",
+  };
+  return { key: "staffing_taxonomy", label: "36-Role Staffing Taxonomy", state: "blocked_user", detail: detail[stage], stage, stage_label: TAXONOMY_STAGE_LABEL[stage] };
+}
 
 /** Legal/consent URLs the public pages link to (see docs/LEGAL_PLACEHOLDERS_V2.md). */
 export const LEGAL_ENV_KEYS = [
@@ -158,7 +176,7 @@ export function readinessReport(headers?: Headers) {
   }
 
   add("ticketing", "Live ticketing integration", "blocked_external", `Not connected. Fixtures ${ticketingFixturesEnabled() ? "ENABLED (demo/test data only)" : "disabled"}.`);
-  add("workbook", "Official 36-role staffing workbook imported", "blocked_user", "Not supplied. Template roles are a planning seed (scripts/workbook-reconcile.ts validates an export, dry run only).");
+  checks.push(taxonomyReadiness());
 
   return { canonicalOrigin: CANONICAL_ORIGIN, trustedOrigins: trustedOriginList(), checks };
 }

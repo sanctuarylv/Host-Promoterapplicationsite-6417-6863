@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { Btn, Empty, ErrorNote, Loading, PageTitle, Panel, SelectField, Stat, Tag, TextField, fmtDate, humanize } from "../../components/console/ui";
 import { usePageMeta } from "../../hooks/use-page-meta";
 import { useDrainNow, useIntegrationAudit, useIntegrationState, useReadiness, useOutbox, useReconcile, useRecordCutover, useRecordRoundTrip, useRetryOutbox } from "../../queries/integration";
@@ -247,8 +248,23 @@ function Readiness() {
                     <td>{c.label}</td>
                     <td>
                       <Tag tone={c.state === "pass" ? "solid" : c.state === "not_started" ? "muted" : "warn"}>{READINESS_LABEL[c.state]}</Tag>
+                      {c.stage_label && (
+                        <span className="mt-1 block text-xs font-semibold text-white/85" data-stage={c.stage}>
+                          {c.stage_label}
+                        </span>
+                      )}
                     </td>
-                    <td className="text-xs text-white/75">{c.detail}</td>
+                    <td className="text-xs text-white/75">
+                      {c.detail}
+                      {c.key === "staffing_taxonomy" && (
+                        <>
+                          {" "}
+                          <Link href="/staff/taxonomy" className="underline">
+                            Open preview
+                          </Link>
+                        </>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

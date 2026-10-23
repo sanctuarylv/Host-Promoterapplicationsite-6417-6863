@@ -12,7 +12,8 @@
  *
  * It creates no workers, approves no pay, books no venue and publishes nothing.
  * Every count marked `proposed` / `provisional` / null (unknown) stays that way.
- * The 36-role staffing workbook was NOT supplied, so it is NOT imported.
+ * The canonical 36-role taxonomy is NOT imported by this seed (scripts/workbook-import.ts
+ * is the separate, dry-run-by-default importer; see docs/STAFFING_IMPORT_RUNBOOK_V2.md).
  */
 import { eq } from "drizzle-orm";
 import { db } from "../src/api/database";
@@ -35,6 +36,7 @@ import { createsCycle } from "../src/api/ops/org";
 import { slotTotals } from "../src/api/ops/coverage";
 import { DEFAULT_OPPORTUNITY, PAID_OPERATOR_ENTITY } from "../src/api/crew/contract";
 import { setSetting } from "../src/api/shared/settings";
+import { AFTER_DARK_V1_ROLES, PLANNING_TRAINING_MODULES } from "../src/api/ops/staffing/after-dark-v1";
 import { assertWritable } from "./guard";
 
 const argv = process.argv.slice(2);
@@ -72,71 +74,8 @@ const LINES: { relation: "operational" | "pastoral" | "coordination"; child: str
   { relation: "pastoral", child: "ministry", parent: "founders", note: "Pastoral supervision, separate from operational reporting" },
 ];
 
-// ── After Dark template v1 ─────────────────────────────────────────────────
-type R = {
-  key: string;
-  title: string;
-  group: string;
-  dept: string;
-  cls: "core" | "talent" | "care" | "promoter" | "founder" | "venue";
-  wf: "paid_group" | "nonprofit_serve" | "founder_tbd" | "venue_provider" | "unclassified";
-  n: number | null;
-  conf?: "proposed" | "provisional" | "unconfirmed";
-  sup?: string;
-  provider?: string;
-  zones?: string[];
-  training?: string[];
-  resp?: string;
-};
-const GX = ["guest_service_fundamentals", "event_orientation", "venue_safety_authority"];
-const ROLES: R[] = [
-  // Operations — 6
-  { key: "event_director", title: "Event Director", group: "operations", dept: "operations", cls: "core", wf: "unclassified", n: 1, sup: "founders", zones: ["all_staff"] },
-  { key: "ops_lead", title: "Operations Lead", group: "operations", dept: "operations", cls: "core", wf: "unclassified", n: 1, sup: "event_director", zones: ["all_staff"] },
-  { key: "venue_liaison", title: "Venue Liaison", group: "operations", dept: "operations", cls: "core", wf: "unclassified", n: 1, sup: "ops_lead", zones: ["all_staff"] },
-  { key: "runner", title: "Runner", group: "operations", dept: "operations", cls: "core", wf: "unclassified", n: 2, sup: "ops_lead", zones: ["back_of_house"] },
-  { key: "serve_coordinator", title: "Serve Team Coordinator (Sanctuary LV nonprofit)", group: "operations", dept: "operations", cls: "core", wf: "nonprofit_serve", n: 1, sup: "ops_lead", zones: ["front_of_house"], resp: "Coordinates unpaid Serve Team volunteers. Separate from paid Group roles." },
-  // Guest Experience — 12
-  { key: "guest_experience_lead", title: "Guest Experience Lead", group: "guest_experience", dept: "guest_experience", cls: "core", wf: "paid_group", n: 1, sup: "event_director", zones: ["front_of_house"], training: GX },
-  { key: "host", title: "Host", group: "guest_experience", dept: "guest_experience", cls: "core", wf: "paid_group", n: 6, sup: "guest_experience_lead", zones: ["front_of_house"], training: GX },
-  { key: "vip_host", title: "VIP Host", group: "guest_experience", dept: "guest_experience", cls: "core", wf: "paid_group", n: 1, sup: "guest_experience_lead", zones: ["front_of_house", "vip"], training: GX },
-  { key: "registration_lead", title: "Registration Lead", group: "guest_experience", dept: "guest_experience", cls: "core", wf: "paid_group", n: 1, sup: "guest_experience_lead", zones: ["front_of_house"], training: GX },
-  { key: "door_team", title: "Door Team", group: "guest_experience", dept: "guest_experience", cls: "core", wf: "paid_group", n: 3, sup: "guest_experience_lead", zones: ["front_of_house"], training: GX, resp: "Welcome and ticket/registration check. Security authority stays with the venue." },
-  // Promotion operations — 1
-  { key: "promoter_manager", title: "Promoter Manager", group: "promotion_ops", dept: "promotion", cls: "core", wf: "paid_group", n: 1, sup: "event_director", training: ["promoter_tracking_accuracy", "event_orientation"] },
-  // Production — 6
-  ...(["production_manager:Production Manager", "stage_manager:Stage Manager", "audio:Audio", "lighting:Lighting", "video_led:Video / LED", "technical_utility:Technical Utility"] as const).map(
-    (s, i): R => {
-      const [key, title] = s.split(":") as [string, string];
-      return { key, title, group: "production", dept: "production", cls: "core", wf: "unclassified", n: 1, sup: i === 0 ? "event_director" : "production_manager", zones: ["back_of_house", "stage"] };
-    },
-  ),
-  // Content — 5
-  { key: "content_director", title: "Content Director", group: "content", dept: "content", cls: "core", wf: "unclassified", n: 1, sup: "production_manager" },
-  { key: "photographer", title: "Photographer", group: "content", dept: "content", cls: "core", wf: "unclassified", n: 1, sup: "content_director" },
-  { key: "videographer", title: "Videographer", group: "content", dept: "content", cls: "core", wf: "unclassified", n: 2, sup: "content_director" },
-  { key: "social_creator", title: "Social Creator", group: "content", dept: "content", cls: "core", wf: "unclassified", n: 1, sup: "content_director" },
-  // Music / talent — 8
-  { key: "music_director", title: "Music Director", group: "music", dept: "music", cls: "talent", wf: "unclassified", n: 1, sup: "event_director", zones: ["stage", "back_of_house"] },
-  { key: "dj", title: "DJ", group: "music", dept: "music", cls: "talent", wf: "unclassified", n: 1, sup: "music_director", zones: ["stage"] },
-  { key: "worship_leader", title: "Worship Leader", group: "music", dept: "music", cls: "talent", wf: "unclassified", n: 1, sup: "music_director", zones: ["stage"] },
-  { key: "musician_vocalist", title: "Musicians / Vocalists", group: "music", dept: "music", cls: "talent", wf: "unclassified", n: 5, sup: "music_director", zones: ["stage"] },
-  // Ministry — 5
-  { key: "prayer_lead", title: "Prayer Lead", group: "ministry", dept: "ministry", cls: "care", wf: "unclassified", n: 1, sup: "event_director", resp: "Optional prayer for guests who ask. No care notes in roster records." },
-  { key: "prayer_team", title: "Prayer Team", group: "ministry", dept: "ministry", cls: "care", wf: "unclassified", n: 4, sup: "prayer_lead" },
-  // Promoters — 6
-  { key: "promoter", title: "Promoter", group: "promoters", dept: "promotion", cls: "promoter", wf: "paid_group", n: 6, sup: "promoter_manager", training: ["promoter_tracking_accuracy", "event_orientation"], resp: "Pre-event outreach; onsite only when assigned." },
-  // Founders — 2
-  { key: "founder", title: "Founders (Erskine and Andrea)", group: "founders", dept: "leadership", cls: "founder", wf: "founder_tbd", n: 2, conf: "unconfirmed", resp: "Entity / pay status to confirm." },
-  // Venue allowances (venue/provider authority) — provisional / unknown
-  { key: "venue_security_supervisor", title: "Security Supervisor (venue)", group: "venue", dept: "venue", cls: "venue", wf: "venue_provider", n: 1, conf: "provisional", provider: "venue" },
-  { key: "venue_security_officer", title: "Security Officers (venue)", group: "venue", dept: "venue", cls: "venue", wf: "venue_provider", n: 4, conf: "provisional", provider: "venue" },
-  { key: "venue_duty_manager", title: "Duty Manager (venue)", group: "venue", dept: "venue", cls: "venue", wf: "venue_provider", n: 1, conf: "provisional", provider: "venue" },
-  { key: "venue_fnb", title: "Food & beverage (venue)", group: "venue", dept: "venue", cls: "venue", wf: "venue_provider", n: null, conf: "unconfirmed", provider: "venue" },
-  { key: "venue_engineering", title: "Engineering (venue)", group: "venue", dept: "venue", cls: "venue", wf: "venue_provider", n: null, conf: "unconfirmed", provider: "venue" },
-  { key: "venue_housekeeping", title: "Housekeeping (venue)", group: "venue", dept: "venue", cls: "venue", wf: "venue_provider", n: null, conf: "unconfirmed", provider: "venue" },
-  { key: "venue_medical", title: "Medical coverage (venue/provider)", group: "venue", dept: "venue", cls: "venue", wf: "venue_provider", n: null, conf: "unconfirmed", provider: "venue" },
-];
+// ── After Dark template v1 (src/api/ops/staffing/after-dark-v1.ts) ─────────
+const ROLES = AFTER_DARK_V1_ROLES;
 
 const MILESTONES = [
   { key: "doors", label: "Doors", local_time: "19:00", day_offset: 0 },
@@ -146,12 +85,7 @@ const MILESTONES = [
   { key: "strike_end", label: "Strike end", local_time: "01:00", day_offset: 1 },
 ];
 
-const MODULES = [
-  { key: "event_orientation", title: "Event orientation", summary: "What the night is: live music, a Christian message, worship, and optional prayer for guests who ask. How to explain it plainly.", required: ["*"], ver: "self_attest" },
-  { key: "guest_service_fundamentals", title: "Guest service fundamentals", summary: "Welcome, wayfinding, respectful guidance and handing off issues to a lead.", required: ["guest_experience_lead", "host", "vip_host", "registration_lead", "door_team"], ver: "staff_verified" },
-  { key: "venue_safety_authority", title: "Venue safety and authority", summary: "Emergency and security decisions stay with the venue. Escalation paths and who to call.", required: ["*"], ver: "staff_verified" },
-  { key: "promoter_tracking_accuracy", title: "Promoter tracking and accuracy", summary: "How event links/codes work, honest invitations, no private contact lists.", required: ["promoter", "promoter_manager"], ver: "self_attest" },
-];
+const MODULES = PLANNING_TRAINING_MODULES;
 
 // ── Campaign ───────────────────────────────────────────────────────────────
 const today = new Date().toISOString().slice(0, 10);

@@ -100,7 +100,8 @@ describe("readiness report", () => {
     expect(by.command_center).toBe("blocked_external");
     expect(by.trusted_proxy).toBe("blocked_external");
     expect(by.ticketing).toBe("blocked_external");
-    expect(by.workbook).toBe("blocked_user");
+    expect(by.staffing_taxonomy).toBe("blocked_user");
+    expect(by.workbook).toBeUndefined();
     expect(by.node_env).toBe("blocked_user");
   });
   test("Command Center is never reported as connected", () => {

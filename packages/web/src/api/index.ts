@@ -11,6 +11,7 @@ import { credentials, attendance, promoters } from "./routes/credentials";
 import { me, worker } from "./routes/worker";
 import { campaigns } from "./routes/campaigns";
 import { integration, staff, serveTeam } from "./routes/integration";
+import { staffingTaxonomy } from "./routes/staffing-taxonomy";
 
 export const router = {
   ping,
@@ -33,6 +34,7 @@ export const router = {
   integration,
   staff,
   serveTeam,
+  staffingTaxonomy,
 };
 
 export type AppRouter = typeof router;

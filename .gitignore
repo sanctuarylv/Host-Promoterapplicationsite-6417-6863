@@ -78,3 +78,6 @@ packages/mobile/scripts/*
 # test artifacts (screenshots, browser/axe outputs, rehearsal DBs live outside the repo)
 packages/web/tests/**/*.png
 packages/web/tests/**/axe.min.js
+
+# generated importer plans (scripts/workbook-import.ts) — never committed
+artifacts/

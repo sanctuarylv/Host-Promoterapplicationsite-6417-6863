@@ -82,7 +82,7 @@ All commands run from `packages/web` unless noted.
 the variable it fails with `LibsqlError: URL_INVALID: The URL 'undefined' is not in a valid
 format`. Any `file:` path works; nothing is written.
 
-**Integration suites:** `authz`, `limits`, `outbox`, `cutover`, `campaigns` and `listing`.
+**Integration suites:** `authz`, `limits`, `outbox`, `cutover`, `campaigns`, `listing` and `taxonomy`.
 `harness.ts`, `pipeline.ts` and `strict-cc-mock.ts` are shared fixtures, not suites. The
 harness deletes every `COMMAND_CENTER_*` and `TURSO*` variable and refuses to run against a
 non-`file:` DB.
@@ -128,7 +128,9 @@ suites.
 | `drizzle/0000_baseline.sql` | Snapshot of the v1 schema (`crew_applications`, `crew_events`), already present in v1 databases |
 | `drizzle/0001_v2_people_pipeline_ops.sql` | Additive. Creates 41 tables (people, opportunities, pipeline, terms and offers, training, org, templates, events, assignments, credentials, attendance, promoters, campaigns, outbox, audit, rate limits, auth) and runs 14 `ALTER TABLE … ADD COLUMN` on `crew_applications`. The **only** destructive statement is `DROP INDEX crew_applications_email_uq`, which runs *after* its replacement (person, opportunity) unique index is created. |
 
-There is no `0002`. No column or table is dropped, and no v1 value is rewritten by the migration.
+| `drizzle/0002_canonical_staffing_taxonomy.sql` | Additive. Creates `ops_canonical_roles` (+ unique `role_key` index) for the 36-role master taxonomy and adds nullable/defaulted columns `ops_template_roles.canonical_role_id`, `enabled` (default true), `required` (default false), `ops_templates.entity_id`, `updated_at`. Writes no rows. See `STAFFING_IMPORT_RUNBOOK_V2.md` §7. |
+
+No column or table is dropped, and no v1 value is rewritten by any migration.
 
 The 41 tables include the Better Auth tables (`user`, `session`, `account`, `verification`). The
 pre-v2 backup (§5) shows they did not exist in the remote DB on 2026-10-03. **Re-check right before
@@ -365,7 +367,7 @@ request's `Origin` is resolved.
 |---|---|
 | Real Command Center contract and an authorized test environment | live sync, round-trip verification, cutover |
 | Live ticketing integration | real guest registration and admission data (fixtures only today) |
-| 36-role staffing workbook | detailed role import. Only the 51-slot planning counts are seeded |
+| Approval of the 36-role taxonomy import (workbook supplied, importer ready) | writing `ops_canonical_roles` on production; any template version derived from it. Only the 51-slot planning counts are seeded |
 | Managed Google sign-in verification on the deployed domain | Google sign-in sign-off (email + password verified locally) |
 | Trusted edge client-IP header contract | moving `CREW_TRUSTED_PROXY` off `none` |
 | Legal URLs and approved language (6 keys) | removing the "pending approval" placeholders |
@@ -374,20 +376,28 @@ request's `Origin` is resolved.
 
 ## 11. Staffing workbook
 
-The official 36-role workbook has not been supplied. Current template roles are a **planning seed**
-(`ops_template_versions.source_note`, `ops_template_roles.confirmation` = proposed / provisional /
-unconfirmed, `ops_events.is_planning_seed`). Nothing marks them as verified production staffing.
+Status: **36-ROLE TAXONOMY VALIDATED — IMPORTER READY — IMPORT PENDING APPROVAL.** Nothing is imported.
 
-When the workbook arrives:
+The official Sanctuary LV Group 36-role workbook has been supplied and is committed verbatim at
+`packages/web/data/staffing/sanctuary_lv_group_36_role_canonical_v1.csv` (sha256 `36dac8e8…8892`). Current
+template roles are still the **planning seed** (`ops_template_versions.source_note`,
+`ops_template_roles.confirmation` = proposed / provisional / unconfirmed, `ops_events.is_planning_seed`).
+Nothing marks them as verified production staffing, and After Dark v1 is unchanged.
 
-1. Export it to CSV (or JSON rows) with `role_key, title, department_key, slot_class, workforce, count,
-   supervisor_role_key, notes`.
-2. `bun scripts/workbook-reconcile.ts workbook.csv` — **dry run only**: opens no database, writes
-   nothing, reports duplicates, unknown supervisors, invalid enums, paid-Group vs nonprofit-Serve
-   conflicts and whether 36 roles are present.
-3. Import as a **new template version** (never edit the published planning seed in place), keep every
-   role `proposed` until staff approve it in-app. The import writer is a reviewed follow-up and is not
-   part of this build.
+- Model, reconciliation map and After Dark vNext rules: `docs/STAFFING_TAXONOMY_V2.md`.
+- Dry run, validation, plan review, approval boundary, rollback: `docs/STAFFING_IMPORT_RUNBOOK_V2.md`.
+- Staff preview: `/staff/taxonomy` (`integration.manage`); readiness row "36-Role Staffing Taxonomy" on
+  `/staff/integration` (always blocked on user approval; it cannot report "imported").
+
+```bash
+# dry run (default) — opens no database, writes only artifacts/workbook-import-plan.json
+env -u DATABASE_URL -u DATABASE_AUTH_TOKEN bun scripts/workbook-import.ts \
+  --file data/staffing/sanctuary_lv_group_36_role_canonical_v1.csv
+```
+
+`--apply` exists only for rehearsal on a local `file:` copy (`--target local --confirm-source-hash=<sha256>`);
+any remote target is refused. `scripts/workbook-reconcile.ts` stays as the legacy six-column validator only
+(`role_key, title, department_key, slot_class, workforce, count, supervisor_role_key, notes`); it is not an importer.
 
 ## 12. Ticketing
 

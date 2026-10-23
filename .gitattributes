@@ -1,0 +1,2 @@
+# Reviewed canonical source exports are hashed byte-for-byte (sha256 is the review identity). Never normalise line endings.
+packages/web/data/staffing/*.csv -text

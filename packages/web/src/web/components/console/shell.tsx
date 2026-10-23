@@ -17,6 +17,7 @@ export const STAFF_NAV: { key: SectionKey; href: string; label: string }[] = [
   { key: "campaigns", href: "/staff/campaigns", label: "Campaigns" },
   { key: "serve", href: "/staff/serve", label: "Serve Team" },
   { key: "integration", href: "/staff/integration", label: "Integration" },
+  { key: "integration", href: "/staff/taxonomy", label: "Staffing taxonomy" },
   { key: "staff", href: "/staff/access", label: "Staff access" },
 ];
 

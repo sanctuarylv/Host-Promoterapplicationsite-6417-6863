@@ -30,7 +30,7 @@ This report covers the 16 required verification items from the v2 brief (§12, "
 | 7 | Staff login, explicit linkage, own-only, cross-scope denial | yes | yes | Managed Google sign-in | no |
 | 8 | Pipeline persistence, revision-safe decisions, audit | yes | yes | — | no |
 | 9 | Terms/training gate readiness; cancel revokes credentials | yes | yes | — | no |
-| 10 | 51 slots / 30 core; unknown venue visible; no double count | yes | yes | 36-role staffing workbook | no |
+| 10 | 51 slots / 30 core; unknown venue visible; no double count | yes | yes | 36-role taxonomy import approval (importer ready, import pending approval) | no |
 | 11 | Reporting cycles, overlaps, overnight, DST | yes | yes | — | no |
 | 12 | Repeat staff/guest scans; promoter re-entry exclusion | yes | yes | Live ticketing | no |
 | 13 | Campaign metric scope, spend, denominators; demo separation | yes | yes | — | no |
@@ -151,7 +151,7 @@ All suite commands run from `packages/web` unless marked *root*. The dev server 
 - `scripts/seed-planning.ts` refuses to seed unless template math gives **51 Sanctuary-side slots and 30 core**. `check.sh` runs it twice successfully.
 - The local test DB has 30 core + 8 talent + 5 care + 6 promoter + 2 founder = 51. The **7 venue rows have 4 unknown (null)** counts, shown as unknown, never 0.
 - `ops-math.test.ts`: "provider fulfillment replaces demand, unknown is not zero", "slots separate venue allowances and unknowns", "peak concurrent uses half-open intervals, not sum of slots".
-- **Blocked:** the 36-role staffing workbook was never supplied and is not imported. Seed data is planning-only and labelled "Planning seed".
+- **Pending approval:** the 36-role Sanctuary LV Group workbook is supplied, validated and reconciled (see "36-role canonical taxonomy phase" below), but **not imported**. Seed data is planning-only and labelled "Planning seed"; After Dark v1 is unchanged.
 
 ### 11. Reporting cycles, incompatible shifts, overnight, DST: implemented, tested
 - `ops-math.test.ts`:
@@ -296,7 +296,7 @@ All suite commands run from `packages/web` unless marked *root*. The dev server 
 ## Remaining external blockers
 1. The real Command Center contract, a test environment and test identities (items 5, 6, 16).
 2. Live ticketing (item 12).
-3. The 36-role staffing workbook; not imported (item 10).
+3. Approval of the 36-role taxonomy import; importer ready, import pending approval, nothing imported (item 10).
 4. Managed Google sign-in verification on the real domain (item 7).
 5. The trusted edge client-IP header for production rate limiting (item 14).
 6. Approved legal URLs/copy and social/brand assets (item 2). The domain is now confirmed: `https://crew.sanctuarylv.org`.
@@ -330,13 +330,14 @@ verified locally in this sandbox (or, for DNS, observed live); it does not mean 
 | P13 | Production migration checklist | `PRODUCTION_MIGRATION_CHECKLIST_V2.md` (not executed) |
 | P14 | IP spoofing protection | `CREW_TRUSTED_PROXY=none` ignores all client-IP headers; `True-Client-IP` never trusted (unit, `limits` 23/23) |
 | P15 | Full verification suite | lint, 3× tsc, unit 53, integration 280, e2e 116, browser 194, build, secret scan, diff check |
+| P16 | 36-role canonical taxonomy validated; importer ready (local) | 36 roles / 66 seats validate with 0 errors; dry run writes nothing (file-hash proof); local apply idempotent; production targets refused; readiness row cannot say "imported" (`STAFFING_IMPORT_RUNBOOK_V2.md`) |
 
 ### BLOCKED — USER INPUT REQUIRED
 
 | # | Item | Exactly what the administrator must provide |
 |---|---|---|
 | U1 | Legal documents | https URLs for `VITE_SANCTUARY_PRIVACY_URL`, `_TERMS_URL`, `_GROUP_DISCLOSURE_URL`, `_VOLUNTEER_TERMS_URL`, `_COMMUNICATIONS_URL`, `_DATA_RETENTION_URL`; approval (or replacement) of the paid and Serve acknowledgements; which entity/channels the optional marketing opt-in covers; whether SMS will be used (then approved SMS consent wording); retention periods |
-| U2 | 36-role staffing workbook | the official workbook as CSV/JSON (columns in `RUNBOOK_V2.md` §11) |
+| U2 | 36-role taxonomy import approval | workbook supplied and validated (sha256 `36dac8e8…8892`). Needed: staff review of the dry-run plan (`plan_hash 8c223638…d701`) incl. `runner` disposition and credential/training gaps; written approval of the source + plan hash, migration 0002 on production and a change window (`STAFFING_IMPORT_RUNBOOK_V2.md` §8, §10). **Importer ready — import pending approval.** |
 | U3 | Runtime `NODE_ENV` | in the deployed environment, set `NODE_ENV=production` or delete the `NODE_ENV=development` line |
 | U4 | `CREW_TOKEN_SECRET` | a dedicated, stable random secret in the deployed environment before any production credential is issued |
 | U5 | Production migration | written approval, change window, operator/reviewer, fresh backup per the checklist |
@@ -358,11 +359,42 @@ verified locally in this sandbox (or, for DNS, observed live); it does not mean 
 
 | # | Item | Depends on |
 |---|---|---|
-| N1 | Workbook import writer (new template version from a validated export) | U2 |
+| N1 | Production taxonomy write path + After Dark template version from the vNext preview (the local, dry-run-by-default importer is done — P16) | U2 |
 | N2 | Data-retention purge job | U1 retention periods |
 | N3 | Canonical Command Center adapter (`CANONICAL_ADAPTER.implemented = true`) | E1 |
 
-**Tally:** PASS 15 · BLOCKED — USER INPUT REQUIRED 7 · BLOCKED — EXTERNAL SYSTEM 6 · NOT STARTED 3.
+**Tally:** PASS 16 · BLOCKED — USER INPUT REQUIRED 7 · BLOCKED — EXTERNAL SYSTEM 6 · NOT STARTED 3.
 
 `packages/web/website.config.json` keeps the template's placeholder hostnames: it is a platform-managed
 template file and the app reads none of it, so it was left unchanged.
+
+---
+
+## 36-role canonical taxonomy phase (2026-10-23)
+
+Status: **36-ROLE TAXONOMY VALIDATED — IMPORTER READY — IMPORT PENDING APPROVAL.** Nothing was imported into
+any production database; only local temp databases were written. Details: `STAFFING_TAXONOMY_V2.md`,
+`STAFFING_IMPORT_RUNBOOK_V2.md`.
+
+| Fact | Value |
+|---|---|
+| Source | `data/staffing/sanctuary_lv_group_36_role_canonical_v1.csv`, sha256 `36dac8e8c7eb7ac529e25cdb217dc758582e6fecc4556163b81ad0ab35cf8892` |
+| Roles | 36 (exact 3 · rename 7 · partial 7 · new 19), entity `sanctuary_lv_group`, opportunity `paid`, engagement `pending_classification` |
+| Existing v1 roles | preserved 17 · excluded 1 (`serve_coordinator`) · external 7 · separate_domain 10 · unresolved 1 (`runner`) |
+| Headcount | canonical baseline 66 (promoter 8); After Dark v1 51 → vNext preview 72; assignments created 0 |
+| Reporting | all 36 resolve; 6 supervisor changes |
+| Credentials / training | mapped 27 · partial 1 · unresolved 8 / mapped 1 · partial 21 · unresolved 14 — gaps grant nothing, create no records |
+| Plan | 50 warnings, 0 errors, `plan_hash 8c22363803999b763305dc8961dcc6b7226271c15c28829ce14aff842cfcd701` |
+
+| Check | Result |
+|---|---|
+| Typecheck (`tsconfig.app/node/scripts.json`) | 0 errors each |
+| Lint *(root)* | 0 warnings, 0 errors |
+| Unit | 92/92 (6 files; `staffing-taxonomy.test.ts` 39) |
+| Integration | `authz` 102, `limits` 23, `outbox` 69, `cutover` 21, `campaigns` 40, `listing` 25, `taxonomy` 24 — all pass |
+| Browser | `pathways.py` 27/27 (portal check skipped without `CREW_WORKER_EMAIL`) |
+| Build *(root)* `bunx turbo build --force` | pass, main chunk 447.60 kB |
+| Migration rehearsal | PASS: tables 46; importer dry run leaves DB hash unchanged; apply 36; re-apply writes 0; template roles / assignments / training unchanged; 7 legacy rows preserved |
+| Schema drift | "No schema changes, nothing to migrate" |
+| `git diff --check` | clean |
+| Secret scan | 0 secret hits; only the public, platform-managed values in `packages/mobile/app.json` (pre-existing, unchanged) |

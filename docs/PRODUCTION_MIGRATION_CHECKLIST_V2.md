@@ -2,7 +2,9 @@
 
 > **NOT EXECUTED. NOT AUTHORIZED.** This checklist is preparation only. Running any step against the
 > production database requires written approval from the Sanctuary administrator and an agreed change
-> window. Nobody has run `0000_baseline` or `0001_v2_people_pipeline_ops` against production.
+> window. Nobody has run `0000_baseline`, `0001_v2_people_pipeline_ops` or
+> `0002_canonical_staffing_taxonomy` against production. Migrating does **not** import the 36-role taxonomy;
+> that is a separate, separately approved step (`STAFFING_IMPORT_RUNBOOK_V2.md`).
 
 Target: the production Turso database behind `https://crew.sanctuarylv.org` (the root `.env`
 `DATABASE_URL`). Details of each command are in [`RUNBOOK_V2.md`](./RUNBOOK_V2.md) §4–5.
@@ -52,7 +54,8 @@ Scripts refuse remote writes without the exact `--target` (exit 2, verified).
 
 ## 4. Verification
 
-- [ ] Table count 4 → 45 (rehearsal result), `__drizzle_migrations` shows `0001`
+- [ ] Table count 4 → 46 (rehearsal result), `__drizzle_migrations` shows `0001` and `0002`
+- [ ] `select count(*) from ops_canonical_roles` = 0 (the migration writes no taxonomy rows)
 - [ ] Every pre-migration `crew_applications` row present with unchanged id, email, created_at, utm_*,
       referral code and consent fields (compare with the backup)
 - [ ] Re-running `drizzle-kit migrate` is a no-op; re-running the backfill processes 0 rows

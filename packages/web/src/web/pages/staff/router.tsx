@@ -13,6 +13,7 @@ const CallSheet = lazy(() => import("./call-sheet"));
 const Campaigns = lazy(() => import("./campaigns"));
 const CampaignDetail = lazy(() => import("./campaign-detail"));
 const Integration = lazy(() => import("./integration"));
+const Taxonomy = lazy(() => import("./taxonomy"));
 const ServeQueue = lazy(() => import("./serve"));
 const Access = lazy(() => import("./access"));
 
@@ -54,6 +55,7 @@ export default function StaffRouter() {
           <Route path="/staff/campaigns">{() => <Gate section="campaigns"><Campaigns /></Gate>}</Route>
           <Route path="/staff/campaigns/:id">{(p) => <Gate section="campaigns"><CampaignDetail id={p.id} /></Gate>}</Route>
           <Route path="/staff/integration">{() => <Gate section="integration"><Integration /></Gate>}</Route>
+          <Route path="/staff/taxonomy">{() => <Gate section="integration"><Taxonomy /></Gate>}</Route>
           <Route path="/staff/serve">{() => <Gate section="serve"><ServeQueue /></Gate>}</Route>
           <Route path="/staff/access">{() => <Gate section="staff"><Access /></Gate>}</Route>
           <Route>

@@ -28,12 +28,68 @@ export const opsReportingLines = sqliteTable(
   (t) => [uniqueIndex("ops_reporting_lines_uq").on(t.relation, t.child_key, t.parent_key)],
 );
 
+/**
+ * MASTER TAXONOMY — what a role IS (Sanctuary LV Group canonical event roles,
+ * SLVG-EVT-###). Separate from staffing templates (reusable configurations)
+ * and event plans (one event). Written only by scripts/workbook-import.ts
+ * --apply after approval; nothing reads it for scheduling, RBAC, credentials
+ * or training. `canonical_role_id` is permanent; `role_key` is the internal key
+ * existing records already use (preserved for mapped roles). Credential and
+ * training text is stored raw — the controlled mappings live in
+ * src/api/ops/staffing/{credentials,training}.ts and grant nothing.
+ */
+export const opsCanonicalRoles = sqliteTable(
+  "ops_canonical_roles",
+  {
+    canonical_role_id: text("canonical_role_id").primaryKey(),
+    role_key: text("role_key").notNull(),
+    display_name: text("display_name").notNull(),
+    legacy_display_name: text("legacy_display_name"),
+    aliases: text("aliases", { mode: "json" }).$type<string[]>().notNull().default([]),
+    match_class: text("match_class").notNull(), // exact | rename | partial | new
+    legacy_role_key: text("legacy_role_key"),
+    department: text("department").notNull(),
+    department_key: text("department_key").notNull(),
+    workstream: text("workstream").notNull(),
+    entity_id: text("entity_id").notNull(), // sanctuary_lv_group
+    opportunity_type: text("opportunity_type").notNull(), // paid
+    engagement_type: text("engagement_type").notNull(), // pending_classification (never inferred)
+    baseline_headcount: integer("baseline_headcount").notNull(), // planning baseline, not a hiring target
+    headcount_model: text("headcount_model").notNull(), // required | recommended | scalable | event_specific
+    event_applicability: text("event_applicability").notNull(), // planning metadata; never schedules
+    event_applicability_key: text("event_applicability_key").notNull(),
+    seniority: text("seniority").notNull(), // executive | manager | lead | coordinator | specialist | team (no RBAC effect)
+    reports_to: text("reports_to").notNull(), // raw workbook value
+    reports_to_role_key: text("reports_to_role_key"),
+    reports_to_canonical_id: text("reports_to_canonical_id"),
+    reports_to_org_unit: text("reports_to_org_unit"), // e.g. founders (ops_org_units.key)
+    status: text("status").notNull(), // active | inactive
+    role_summary: text("role_summary").notNull(),
+    pre_event_responsibilities: text("pre_event_responsibilities").notNull(),
+    load_in_responsibilities: text("load_in_responsibilities").notNull(),
+    live_event_responsibilities: text("live_event_responsibilities").notNull(),
+    closeout_responsibilities: text("closeout_responsibilities").notNull(),
+    dress_code: text("dress_code").notNull(),
+    credential_level: text("credential_level").notNull(), // raw text — mapping layer only
+    training_requirements: text("training_requirements").notNull(), // raw text — mapping layer only
+    import_version: text("import_version").notNull(),
+    source_system: text("source_system").notNull(),
+    source_hash: text("source_hash").notNull(), // sha256 of the reviewed source file
+    created_at: ms("created_at").notNull().$defaultFn(now),
+    updated_at: ms("updated_at").notNull().$defaultFn(now),
+  },
+  (t) => [uniqueIndex("ops_canonical_roles_role_key_uq").on(t.role_key)],
+);
+
 export const opsTemplates = sqliteTable("ops_templates", {
   id: text("id").primaryKey(),
   template_key: text("template_key").notNull().unique(),
   name: text("name").notNull(),
   description: text("description"),
+  /** Owning entity when the template is single-entity (null = mixed / not stated, e.g. After Dark v1). */
+  entity_id: text("entity_id"),
   created_at: ms("created_at").notNull().$defaultFn(now),
+  updated_at: ms("updated_at"),
 });
 
 export const opsTemplateVersions = sqliteTable(
@@ -80,6 +136,12 @@ export const opsTemplateRoles = sqliteTable(
     zones: text("zones", { mode: "json" }).$type<string[]>().notNull().default([]),
     phase_duties: text("phase_duties", { mode: "json" }).$type<Record<string, string>>().notNull().default({}),
     sort: integer("sort").notNull().default(0),
+    /** Canonical taxonomy link (ops_canonical_roles). Null for roles outside the Group taxonomy and for v1 rows. */
+    canonical_role_id: text("canonical_role_id"),
+    /** Whether the slot is active in this template version (configured_headcount == recommended_count). */
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    /** Included by default (canonical headcount_model = required). */
+    required: integer("required", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [uniqueIndex("ops_template_roles_uq").on(t.template_version_id, t.role_key)],
 );

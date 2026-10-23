@@ -1,6 +1,6 @@
 /**
- * In-process test harness: a FRESH disposable libSQL file (migrations 0000 +
- * 0001 + the planning seed) and the real Hono app (`app.fetch`) — full auth,
+ * In-process test harness: a FRESH disposable libSQL file (every migration in drizzle/ +
+ * the planning seed) and the real Hono app (`app.fetch`) — full auth,
  * oRPC middleware and permissions, with no dev server and no shared DB.
  *
  * Every value set here is test-only. No secret from the root .env is read.
