@@ -77,7 +77,7 @@ export default function ServePage() {
   return (
     <>
       <Grain />
-      <SiteHeader />
+      <SiteHeader brand="nonprofit" />
       <main id="main" className="bg-sx-black pt-16">
         <section aria-labelledby="serve-title" className="mx-auto grid max-w-[1600px] gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[5fr_7fr] lg:gap-20 lg:px-12 lg:py-24">
           <div className="lg:sticky lg:top-24 lg:self-start">
@@ -165,7 +165,7 @@ export default function ServePage() {
           )}
         </section>
       </main>
-      <SiteFooter />
+      <SiteFooter brand="nonprofit" />
     </>
   );
 }

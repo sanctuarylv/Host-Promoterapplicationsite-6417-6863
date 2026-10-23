@@ -2,7 +2,7 @@ import { Cta, Wordmark } from "../components/crew/chrome";
 import { usePageMeta } from "../hooks/use-page-meta";
 
 export default function NotFound() {
-  usePageMeta("Not found — Sanctuary LV", { noindex: true });
+  usePageMeta("Not found — Sanctuary LV Group", { noindex: true });
   return (
     <main id="main" className="flex min-h-[100svh] flex-col justify-between bg-sx-black px-5 py-6 sm:px-8 lg:px-12">
       <Wordmark />

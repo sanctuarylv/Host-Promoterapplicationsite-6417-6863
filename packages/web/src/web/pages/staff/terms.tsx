@@ -55,7 +55,7 @@ function DraftForm({ prefill, onDone }: { prefill?: typeof EMPTY; onDone: () => 
 }
 
 export default function TermsPage() {
-  usePageMeta("Terms & offers · Sanctuary LV staff", { noindex: true });
+  usePageMeta("Terms & offers · Sanctuary LV Group staff", { noindex: true });
   const list = useTermsList();
   const dir = useStaffDirectory();
   const modules = useTrainingModules();

@@ -276,7 +276,7 @@ function CreateEvent({ onDone }: { onDone: () => void }) {
 }
 
 export default function EventsPage() {
-  usePageMeta("Events · Sanctuary LV staff", { noindex: true });
+  usePageMeta("Events · Sanctuary LV Group staff", { noindex: true });
   const ev = useEvents();
   const org = useOrgChart();
   const [creating, setCreating] = useState(false);

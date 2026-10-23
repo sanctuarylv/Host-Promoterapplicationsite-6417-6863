@@ -91,7 +91,7 @@ export default function SignInPage() {
   return (
     <main id="main" className="flex min-h-[100svh] items-start justify-center bg-sx-black px-5 py-16 sm:items-center">
       <div className="w-full max-w-sm">
-        <Link href="/" aria-label="Sanctuary LV — home">
+        <Link href="/" aria-label="Sanctuary LV Group — home">
           <Wordmark />
         </Link>
         <h1 className="heading mt-10 text-4xl">{mode === "sign-in" ? "Sign in" : "Create account"}</h1>

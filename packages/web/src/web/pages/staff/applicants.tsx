@@ -50,7 +50,7 @@ const STATUS_OPTS = [["", "All statuses"], ...PIPELINE_STATUSES.map((s) => [s, h
 const ROLE_OPTS = [["", "All roles"], ...ROLE_OPTIONS.map((r) => [r.value, r.label] as const)] as const;
 
 export default function ApplicantsPage() {
-  usePageMeta("Applicants · Sanctuary LV staff", { noindex: true });
+  usePageMeta("Applicants · Sanctuary LV Group staff", { noindex: true });
   const [filter, setFilter] = useState<Filter>({ reviewer: "any", referral: "any", sync: "any" });
   const [q, setQ] = useState("");
   const [stack, setStack] = useState<(string | null)[]>([null]);

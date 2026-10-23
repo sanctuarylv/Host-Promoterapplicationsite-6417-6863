@@ -9,6 +9,13 @@ import { LegalLinks } from "./legal";
 
 export type RoleChoice = "host" | "promoter" | "both";
 
+/**
+ * Which name the shared chrome shows. Everything is Sanctuary LV Group except the
+ * nonprofit Serve Team page, which keeps the nonprofit's own name, Sanctuary LV.
+ */
+export type Brand = "group" | "nonprofit";
+export const BRAND_NAME: Record<Brand, string> = { group: "Sanctuary LV Group", nonprofit: "Sanctuary LV" };
+
 export const applyHref = (role?: RoleChoice, entry?: string) => {
   const p = new URLSearchParams();
   if (role) p.set("role", role);
@@ -24,12 +31,12 @@ export const applyHref = (role?: RoleChoice, entry?: string) => {
  * Until then a plain text label is shown.
  */
 const USE_LOGO_FILE = false;
-export function Wordmark({ className }: { className?: string }) {
+export function Wordmark({ className, brand = "group" }: { className?: string; brand?: Brand }) {
   if (USE_LOGO_FILE)
-    return <img src="/images/brand/wordmark-white.svg" alt="Sanctuary LV" className={cn("h-4 w-auto", className)} />;
+    return <img src="/images/brand/wordmark-white.svg" alt={BRAND_NAME[brand]} className={cn("h-4 w-auto", className)} />;
   return (
     <span className={cn("text-[13px] font-medium uppercase tracking-[0.32em]", className)}>
-      Sanctuary <span className="text-white/60">LV</span>
+      Sanctuary <span className="text-white/60">{brand === "group" ? "LV Group" : "LV"}</span>
     </span>
   );
 }
@@ -72,7 +79,7 @@ export function Cta({ href, children, variant = "solid", crewRole, entry, classN
   );
 }
 
-export function SiteHeader() {
+export function SiteHeader({ brand = "group" }: { brand?: Brand }) {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 40);
@@ -94,8 +101,8 @@ export function SiteHeader() {
         Skip to content
       </a>
       <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-5 sm:px-8 lg:px-12">
-        <Link href="/crew" aria-label="Sanctuary LV — Host + Promoter Team home">
-          <Wordmark />
+        <Link href="/crew" aria-label={`${BRAND_NAME[brand]} — Host + Promoter Team home`}>
+          <Wordmark brand={brand} />
         </Link>
         <nav aria-label="Primary" className="flex items-center gap-6">
           <a href="#roles" className="eyebrow hidden text-white/70 hover:text-white md:inline">
@@ -119,7 +126,7 @@ export function SiteHeader() {
   );
 }
 
-export function FollowLinks({ tone = "dark" }: { tone?: "dark" | "light" }) {
+export function FollowLinks({ tone = "dark", brand = "group" }: { tone?: "dark" | "light"; brand?: Brand }) {
   const anyLive = SOCIAL_LINKS.some((s) => s.url);
   return (
     <div>
@@ -158,29 +165,29 @@ export function FollowLinks({ tone = "dark" }: { tone?: "dark" | "light" }) {
       </ul>
       {!anyLive && (
         <p className={cn("mt-2 text-xs", tone === "dark" ? "text-white/60" : "text-sx-black/65")}>
-          Official Sanctuary LV channels will be linked here.
+          Official {BRAND_NAME[brand]} channels will be linked here.
         </p>
       )}
     </div>
   );
 }
 
-export function SiteFooter() {
+export function SiteFooter({ brand = "group" }: { brand?: Brand }) {
   return (
     <footer className="border-t border-white/10 bg-sx-black">
       <div className="mx-auto grid max-w-[1600px] gap-12 px-5 py-16 sm:px-8 md:grid-cols-[1.2fr_1fr] lg:px-12 lg:py-20">
         <div>
-          <Wordmark />
+          <Wordmark brand={brand} />
           <p className="mt-6 max-w-sm text-[15px] leading-relaxed text-white/60">A new kind of sanctuary for Las Vegas.</p>
         </div>
         <div className="space-y-6">
-          <p className="eyebrow text-white/60">Follow Sanctuary LV</p>
-          <FollowLinks />
+          <p className="eyebrow text-white/60">Follow {BRAND_NAME[brand]}</p>
+          <FollowLinks brand={brand} />
         </div>
       </div>
       <div className="mx-auto flex max-w-[1600px] flex-col gap-3 border-t border-white/10 px-5 py-6 text-xs text-white/60 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-12">
         <div className="space-y-1">
-          <p>© {new Date().getFullYear()} Sanctuary LV · Las Vegas, Nevada</p>
+          <p>© {new Date().getFullYear()} {BRAND_NAME[brand]} · Las Vegas, Nevada</p>
           <p data-testid="operator-note">
             Paid Host, Promoter and event-crew opportunities: {PAID_ENTITY}. Volunteer / Serve Team: {NONPROFIT_ENTITY}.
           </p>

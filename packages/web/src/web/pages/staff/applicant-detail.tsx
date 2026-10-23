@@ -497,7 +497,7 @@ function PersonPanel({ d }: { d: Detail }) {
 export default function ApplicantDetailPage({ id }: { id: string }) {
   const q = useApplicant(id);
   const d = q.data;
-  usePageMeta(d ? `${d.app.first_name} ${d.app.last_name} · Applicants` : "Applicant · Sanctuary LV staff", { noindex: true });
+  usePageMeta(d ? `${d.app.first_name} ${d.app.last_name} · Applicants` : "Applicant · Sanctuary LV Group staff", { noindex: true });
   if (q.isPending) return <Loading />;
   if (q.error || !d) return <ErrorNote error={q.error} />;
   const a = d.app;

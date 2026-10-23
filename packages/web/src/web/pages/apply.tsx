@@ -31,7 +31,7 @@ function loadDraft(): Draft | null {
 let liveFlows = 0;
 
 export default function ApplyPage() {
-  usePageMeta("Apply — Sanctuary LV Host + Promoter Team");
+  usePageMeta("Apply — Sanctuary LV Group Host + Promoter Team");
   const search = useSearch();
   const params = useMemo(() => new URLSearchParams(search), [search]);
   const roleParam = params.get("role");
@@ -239,7 +239,7 @@ export default function ApplyPage() {
       <div className="flex min-h-[100svh] flex-col">
         <header className="sticky top-0 z-30 border-b border-white/10 bg-sx-black/90 backdrop-blur-md">
           <div className="flex h-16 items-center justify-between gap-4 px-5 sm:px-8 lg:px-12">
-            <Link href="/crew" aria-label="Sanctuary LV crew page">
+            <Link href="/crew" aria-label="Sanctuary LV Group crew page">
               <Wordmark />
             </Link>
             <div className="flex items-center gap-4">

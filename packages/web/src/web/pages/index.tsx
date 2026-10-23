@@ -7,7 +7,7 @@ import { track } from "../lib/analytics";
 import { captureAttribution } from "../lib/attribution";
 
 export default function CrewLanding() {
-  usePageMeta("Join the Sanctuary LV Host + Promoter Team");
+  usePageMeta("Join the Sanctuary LV Group Host + Promoter Team");
   useReveal();
 
   useEffect(() => {

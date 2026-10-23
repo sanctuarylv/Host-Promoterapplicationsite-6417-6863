@@ -28,7 +28,7 @@ export function Hero() {
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col justify-end px-5 pb-10 pt-28 sm:px-8 sm:pb-14 lg:px-12 lg:pb-16">
         <p className="eyebrow rise text-white/70" style={{ "--d": 100 } as React.CSSProperties}>
-          Sanctuary LV — Host + Promoter Team <span aria-hidden>·</span> {OPPORTUNITY_STATUS}
+          Sanctuary LV Group — Host + Promoter Team <span aria-hidden>·</span> {OPPORTUNITY_STATUS}
         </p>
 
         <h1 id="hero-title" className="display mt-6 text-[clamp(3.1rem,13.5vw,11.5rem)]">
@@ -48,7 +48,7 @@ export function Hero() {
             className="rise max-w-[34rem] text-[17px] font-light leading-relaxed text-white/80 sm:text-lg"
             style={{ "--d": 620 } as React.CSSProperties}
           >
-            Sanctuary LV is building a community of Hosts and Promoters who help create unforgettable experiences and
+            Sanctuary LV Group is building a community of Hosts and Promoters who help create unforgettable experiences and
             bring people into the room. Paid Host and Promoter opportunities are operated by {PAID_ENTITY}.
           </p>
 

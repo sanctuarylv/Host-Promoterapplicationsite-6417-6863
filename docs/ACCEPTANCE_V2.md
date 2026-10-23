@@ -398,3 +398,7 @@ any production database; only local temp databases were written. Details: `STAFF
 | Schema drift | "No schema changes, nothing to migrate" |
 | `git diff --check` | clean |
 | Secret scan | 0 secret hits; only the public, platform-managed values in `packages/mobile/app.json` (pre-existing, unchanged) |
+
+Brand naming: the public and staff surfaces now say **Sanctuary LV Group** (header/footer wordmark, page
+titles, meta tags, landing copy). The nonprofit Serve Team page (`/serve`) keeps **Sanctuary LV** in its header
+and footer, and every reference to the nonprofit entity ("Sanctuary LV nonprofit") is unchanged.

@@ -33,7 +33,7 @@ export function TopBar({ label, children }: { label: string; children?: ReactNod
     <header className="no-print sticky top-0 z-30 border-b border-white/10 bg-sx-black/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between gap-3 px-4 sm:px-8">
         <div className="flex min-w-0 items-center gap-4">
-          <Link href="/" aria-label="Sanctuary LV — public site" className="shrink-0">
+          <Link href="/" aria-label="Sanctuary LV Group — public site" className="shrink-0">
             <Wordmark />
           </Link>
           <span className="eyebrow hidden truncate text-white/60 sm:inline">{label}</span>

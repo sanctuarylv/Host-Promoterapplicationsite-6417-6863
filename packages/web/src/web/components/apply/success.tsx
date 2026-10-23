@@ -23,7 +23,7 @@ export function SuccessScreen({ firstName }: { firstName: string }) {
 
   const share = async () => {
     const url = `${window.location.origin}/crew`;
-    const data = { title: "Join the Sanctuary LV Host + Promoter Team", text: "Don't just attend Sanctuary. Help build it.", url };
+    const data = { title: "Join the Sanctuary LV Group Host + Promoter Team", text: "Don't just attend Sanctuary. Help build it.", url };
     try {
       if (navigator.share) await navigator.share(data);
       else {
@@ -43,7 +43,7 @@ export function SuccessScreen({ firstName }: { firstName: string }) {
       </div>
 
       <div className="mx-auto flex h-16 max-w-[1600px] items-center px-5 sm:px-8 lg:px-12">
-        <Link href="/crew" aria-label="Back to Sanctuary LV crew page">
+        <Link href="/crew" aria-label="Back to Sanctuary LV Group crew page">
           <Wordmark />
         </Link>
       </div>
@@ -117,7 +117,7 @@ export function SuccessScreen({ firstName }: { firstName: string }) {
 
         <div className="mt-20 grid gap-12 border-t border-white/15 pt-10 lg:grid-cols-2">
           <div>
-            <h2 className="eyebrow text-white/60">Follow Sanctuary LV</h2>
+            <h2 className="eyebrow text-white/60">Follow Sanctuary LV Group</h2>
             <div className="mt-4">
               <FollowLinks />
             </div>
