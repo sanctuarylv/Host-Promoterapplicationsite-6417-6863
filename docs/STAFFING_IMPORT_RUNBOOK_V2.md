@@ -100,6 +100,16 @@ Changing a mapping means editing `role-map.ts` in a reviewed commit; tests pin t
 **Reconciliation ready** (valid but unreviewed) or **Validation failed**. An apply requires
 `--confirm-source-hash=<sha256>` equal to the plan's hash.
 
+**Phase 3: plan hash integrity.** The derived dry-run plan is pinned too: `REVIEWED_PLAN_SHA256` in
+`src/api/ops/staffing/integrity.ts` (`8c22363803999b763305dc8961dcc6b7226271c15c28829ce14aff842cfcd701`). It is computed
+with no target and the canonical source path, so the value does not depend on where the file is read from. The dry
+run prints `integrity source_hash: MATCH|MISMATCH` and `integrity plan_hash: MATCH|MISMATCH`. When the source matches
+but the plan does not (the role map, credential or training tables, vNext rules or validation changed), the stage is
+**Baseline mismatch: re-review required** (`baseline_mismatch`), not *Import pending approval*. The five stages are
+`not_supplied`, `validation_failed`, `reconciliation_ready`, `baseline_mismatch` and `import_pending_approval`.
+`--apply` additionally requires `--confirm-plan-hash=<baseline plan sha256>` and refuses a non-baseline source
+or plan (exit 2, 0 rows). See `PRODUCTION_APPROVAL_PACKAGE_V3.md` §2 and §4.
+
 ## 6. Plan review
 
 Review `artifacts/workbook-import-plan.json` (or `/staff/taxonomy`) before any approval:
@@ -134,8 +144,8 @@ gives the same hash.
 
 In this phase the importer **cannot** write anything except a local `file:` database:
 
-- `--apply` requires `--target local`, a `file:` `DATABASE_URL`, a valid plan, an existing table and
-  `--confirm-source-hash`. Any other target (`staging`, `production`, a `libsql://` host) is refused with exit 2.
+- `--apply` requires `--target local`, a `file:` `DATABASE_URL`, a valid plan matching the Phase 2 baseline, an
+  existing table, `--confirm-source-hash` and `--confirm-plan-hash`. Any other target (`staging`, `production`, a `libsql://` host) is refused with exit 2.
   There is no override flag.
 - Even locally, apply writes only `ops_canonical_roles` (upsert by `canonical_role_id`). It never writes template
   versions, template roles, event plans, assignments, credentials, permissions, training modules or training
@@ -156,6 +166,10 @@ reviewed production write path (§10). None of these exist yet.
   events, assignments and training are untouched, so nothing else needs reverting.
 - Rolling back migration 0002 itself is a schema change: restore from the pre-migration backup per
   `RUNBOOK_V2.md` §5 rather than dropping columns by hand.
+- Phase 3 rehearsed these procedures locally with `tests/migration/recovery.sh` (R1 file restore, R2 import
+  rollback, R3 0002 schema rollback, R4 app compatibility). R4 shows that the current code fails on the pre-0002
+  schema, so a schema rollback also requires an app rollback. The assumptions that remain unverified on Turso (U1–U5)
+  are listed in `PRODUCTION_APPROVAL_PACKAGE_V3.md` §7.
 
 ## 10. Future production import procedure (not authorized now)
 

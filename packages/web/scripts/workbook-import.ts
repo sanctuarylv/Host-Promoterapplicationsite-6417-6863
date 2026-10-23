@@ -3,7 +3,7 @@
  *
  *   bun scripts/workbook-import.ts --file data/staffing/sanctuary_lv_group_36_role_canonical_v1.csv
  *   bun scripts/workbook-import.ts --file <path> --dry-run [--target local] [--out <plan.json>]
- *   bun scripts/workbook-import.ts --file <path> --apply --target local --confirm-source-hash=<sha256>   # LOCAL REHEARSAL ONLY
+ *   bun scripts/workbook-import.ts --file <path> --apply --target local --confirm-source-hash=<sha256> --confirm-plan-hash=<sha256>   # LOCAL REHEARSAL ONLY
  *
  * Formats (detected by the COMPLETE header set, never one column):
  *   canonical_v1 — the Sanctuary LV Group 36-role workbook export (CSV, or JSON array of rows)
@@ -20,7 +20,11 @@
  * --apply exists so the write path can be rehearsed and proven idempotent on a
  * disposable LOCAL copy. It writes only ops_canonical_roles (upsert by
  * canonical_role_id) and requires: a valid plan, `--target local`, a `file:`
- * DATABASE_URL, and --confirm-source-hash equal to the plan's source_hash.
+ * DATABASE_URL, and BOTH hashes pinned to the Phase 2 reviewed baseline
+ * (src/api/ops/staffing/integrity.ts): the source sha256 must equal
+ * REVIEWED_SOURCE_SHA256 and --confirm-source-hash; the target-independent
+ * baseline plan hash must equal REVIEWED_PLAN_SHA256 and --confirm-plan-hash.
+ * Any drift (new source bytes, changed map / rules) refuses the apply.
  * Any remote/production target is refused in this phase — there is no flag to
  * override it. Template versions, event plans, assignments, credentials,
  * permissions and training records are never written.
@@ -30,6 +34,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
+import { baselinePlanHash, checkIntegrity } from "../src/api/ops/staffing/integrity";
 import { buildImportPlan, recordsForApply, type CanonicalRoleRecord, type ImportPlan } from "../src/api/ops/staffing/plan";
 
 const argv = process.argv.slice(2);
@@ -124,6 +129,9 @@ for (const e of plan.errors) console.log(`ERROR ${e.code}${e.row ? ` row ${e.row
 console.log(`proposed writes (informational): insert ${s.insert} · update ${s.update} · unchanged ${s.unchanged} · conflict ${s.conflict}${schemaPresent === false ? " (ops_canonical_roles missing — run migration 0002 on the rehearsal copy first)" : ""}`);
 const shownOut = relative(process.cwd(), out).startsWith("..") ? out : relative(process.cwd(), out);
 console.log(`plan ${shownOut}  plan_hash ${plan.plan_hash}`);
+const baselineHash = plan.ok ? baselinePlanHash(text, kind, source_hash) : null;
+const integrity = checkIntegrity(source_hash, baselineHash);
+for (const c of integrity.checks) console.log(`integrity ${c.key}: ${c.match ? "MATCH" : "MISMATCH"} (expected ${c.expected}, got ${c.actual ?? "none"})`);
 
 if (!plan.ok) {
   client?.close();
@@ -138,7 +146,10 @@ if (!apply) {
 
 // ── LOCAL REHEARSAL APPLY ───────────────────────────────────────────────────
 const confirm = opt("confirm-source-hash");
+if (!integrity.checks[0]!.match) die(`refusing --apply: source sha256 ${source_hash} is not the Phase 2 reviewed source ${integrity.baseline.source_sha256}`);
+if (!integrity.checks[1]!.match) die(`refusing --apply: baseline plan_hash ${baselineHash} differs from the Phase 2 reviewed plan ${integrity.baseline.plan_sha256} — re-review required`);
 if (confirm !== plan.source_hash) die(`--confirm-source-hash must equal the reviewed source hash ${plan.source_hash}`);
+if (opt("confirm-plan-hash") !== integrity.baseline.plan_sha256) die(`--confirm-plan-hash must equal the reviewed baseline plan hash ${integrity.baseline.plan_sha256}`);
 if (!schemaPresent) die("ops_canonical_roles does not exist on this database — apply migration 0002 to the rehearsal copy first");
 const records = recordsForApply({ text, kind, source_file, source_hash });
 const write = new Set(plan.proposed_writes.operations.filter((o) => o.op === "insert" || o.op === "update").map((o) => o.canonical_role_id));

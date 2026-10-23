@@ -105,6 +105,7 @@ export function taxonomyReadiness(stage: TaxonomyStage = embeddedTaxonomy().stag
     not_supplied: "Canonical staffing source not supplied — DRY RUN, nothing imported.",
     validation_failed: "Canonical source failed validation — see /staff/taxonomy. DRY RUN, nothing imported.",
     reconciliation_ready: "Source validates but its hash is not the reviewed source — re-review the reconciliation map. DRY RUN, nothing imported.",
+    baseline_mismatch: "Source matches the reviewed hash but the derived plan_hash differs from the Phase 2 baseline — re-review required. DRY RUN, nothing imported.",
     import_pending_approval: "36 roles / 66 baseline seats validated against the reviewed map. Import pending approval — DRY RUN, nothing imported (review at /staff/taxonomy).",
   };
   return { key: "staffing_taxonomy", label: "36-Role Staffing Taxonomy", state: "blocked_user", detail: detail[stage], stage, stage_label: TAXONOMY_STAGE_LABEL[stage] };

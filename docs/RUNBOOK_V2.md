@@ -77,6 +77,7 @@ All commands run from `packages/web` unless noted.
 | e2e | `DATABASE_URL=file:<test db> DATABASE_AUTH_TOKEN=local-file bun tests/e2e/<suite>.ts` | yes | the dev server's DB |
 | Browser (Playwright) | `python3 tests/browser/<suite>.py` | yes | the dev server's DB |
 | Migration rehearsal | `env -u DATABASE_URL -u DATABASE_AUTH_TOKEN bash tests/migration/check.sh <legacy-v1.db>` (from repo root: `packages/web/tests/migration/check.sh`) | no | copy under `/tmp/crew-migcheck-*` |
+| Recovery rehearsal (Phase 3) | `env -u DATABASE_URL -u DATABASE_AUTH_TOKEN bash tests/migration/recovery.sh <legacy-v1.db> <pre-0002.db>`: R1 file restore, R2 import rollback, R3 0002 schema rollback, R4 app compatibility (`PRODUCTION_APPROVAL_PACKAGE_V3.md` §7) | no | copies under `/tmp/crew-recovery-*` |
 
 **Unit tests need `DATABASE_URL`.** `ops-math.test.ts` imports the template DB client. Without
 the variable it fails with `LibsqlError: URL_INVALID: The URL 'undefined' is not in a valid
@@ -100,6 +101,7 @@ fixtures. It prints an event-ready worker (`flow.worker+<run>@example.com`), whi
 | `pipeline_ui.py` | optional consent-version argument (defaults to `CONSENT_VERSION` parsed from `contract.ts`), `CREW_SHOTS` |
 | `operations.py` | `CREW_WORKER_EMAIL` (required), `CREW_AXE_PATH` (required), `CREW_SHOTS` (default `/tmp/shots/ops`) |
 | `pathways.py` | optional `CREW_WORKER_EMAIL` (portal check is skipped without it) |
+| `taxonomy_review.py` | optional `CREW_ADMIN_EMAIL`, `CREW_PASSWORD`, `CREW_SHOTS`. Covers the six read-only `/staff/taxonomy` review panels, checks that only read procedures are called, and runs the branding regression. The dev server's DB must have migration 0002 applied |
 
 Every browser script refuses a non-localhost `CREW_BASE` and exits 1 on any failure.
 `axe.min.js` (axe-core 4.x) is not committed; download it and point `CREW_AXE_PATH` at it.
@@ -395,8 +397,9 @@ env -u DATABASE_URL -u DATABASE_AUTH_TOKEN bun scripts/workbook-import.ts \
   --file data/staffing/sanctuary_lv_group_36_role_canonical_v1.csv
 ```
 
-`--apply` exists only for rehearsal on a local `file:` copy (`--target local --confirm-source-hash=<sha256>`);
-any remote target is refused. `scripts/workbook-reconcile.ts` stays as the legacy six-column validator only
+`--apply` exists only for rehearsal on a local `file:` copy (`--target local --confirm-source-hash=<sha256>
+--confirm-plan-hash=<baseline plan sha256>`). Any remote target, and any source or plan that does not match the Phase 2
+baseline, is refused (stage `baseline_mismatch`; see `STAFFING_IMPORT_RUNBOOK_V2.md` §5). `scripts/workbook-reconcile.ts` stays as the legacy six-column validator only
 (`role_key, title, department_key, slot_class, workforce, count, supervisor_role_key, notes`); it is not an importer.
 
 ## 12. Ticketing

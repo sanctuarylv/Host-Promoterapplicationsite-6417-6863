@@ -1,33 +1,36 @@
-import type { ReactNode } from "react";
 import { Empty, ErrorNote, Loading, PageTitle, Panel, Stat, Tag, humanize } from "../../components/console/ui";
+import {
+  ApprovalChecklistPanel,
+  CredentialReviewPanel,
+  RoleReviewPanel,
+  RunnerDecisionPanel,
+  Table,
+  TemplateComparisonPanel,
+  TrainingReviewPanel,
+} from "../../components/staff/taxonomy-review";
 import { usePageMeta } from "../../hooks/use-page-meta";
 import { useStaffingTaxonomyPreview } from "../../queries/staffing-taxonomy";
 
 /**
  * Read-only review of the 36-role canonical staffing taxonomy reconciliation.
  * There are no buttons that write: importing is a CLI-only, explicitly
- * approved operation (docs/STAFFING_IMPORT_RUNBOOK_V2.md).
+ * approved operation (docs/STAFFING_IMPORT_RUNBOOK_V2.md). Phase 3 adds the
+ * operational review panels (role review, runner decision, credential and
+ * training reconciliation, v1 vs vNext comparison, approval checklist) —
+ * display only (docs/STAFFING_TAXONOMY_REVIEW_V3.md).
  */
 
-function Table({ caption, head, children, testId, min = 720 }: { caption: string; head: string[]; children: ReactNode; testId: string; min?: number }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="cx-table" style={{ minWidth: min }} data-testid={testId}>
-        <caption className="sr-only">{caption}</caption>
-        <thead>
-          <tr>
-            {head.map((h) => (
-              <th key={h} scope="col">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  );
-}
+const SECTIONS: [string, string][] = [
+  ["approval-checklist", "Approval checklist"],
+  ["role-review", "Role review"],
+  ["runner-decision", "Runner decision"],
+  ["credential-review", "Credential review"],
+  ["training-review", "Training review"],
+  ["template-comparison", "v1 vs vNext"],
+  ["summary", "Summary"],
+  ["role-changes", "Role changes"],
+  ["outside", "Outside the taxonomy"],
+];
 
 const sup = (s: string | null) => (s ? <span className="font-mono text-xs">{s}</span> : <span className="text-white/60">none</span>);
 
@@ -36,7 +39,7 @@ export default function TaxonomyPage() {
   const q = useStaffingTaxonomyPreview();
   if (q.isPending) return <Loading />;
   if (q.error || !q.data) return <ErrorNote error={q.error} />;
-  const { plan, stage, stage_label, import_status, stored_canonical_roles } = q.data;
+  const { plan, stage, stage_label, import_status, stored_canonical_roles, review, integrity } = q.data;
 
   const banner = (
     <output data-testid="import-status" className="block border-2 border-white bg-white/5 px-4 py-3">
@@ -71,6 +74,27 @@ export default function TaxonomyPage() {
     <div className="space-y-6">
       <PageTitle eyebrow="Staffing · Sanctuary LV Group" title="36-Role Staffing Taxonomy" />
       {banner}
+      <nav aria-label="Taxonomy review sections" className="text-xs">
+        <ul className="flex flex-wrap gap-2">
+          {SECTIONS.map(([id, label]) => (
+            <li key={id}>
+              <a href={`#${id}`} className="inline-block border border-white/30 px-2 py-1 hover:border-white">
+                {label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      {review && (
+        <>
+          <ApprovalChecklistPanel list={review.approval_checklist} integrity={integrity} />
+          <RoleReviewPanel review={review.role_review} />
+          <RunnerDecisionPanel d={review.runner_decision} />
+          <CredentialReviewPanel review={review.credential_review} />
+          <TrainingReviewPanel review={review.training_review} />
+          {review.template_comparison && <TemplateComparisonPanel cmp={review.template_comparison} />}
+        </>
+      )}
 
       <Panel id="summary" title="Summary" eyebrow={`Source ${plan.source_file} · sha256 ${plan.source_hash.slice(0, 12)}… · plan ${plan.plan_hash.slice(0, 12)}…`}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="taxonomy-summary">

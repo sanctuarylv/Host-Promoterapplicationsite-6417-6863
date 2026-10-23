@@ -52,8 +52,34 @@ try {
   check("0 errors", p.plan?.errors.length, 0);
   check("vNext preview_only", p.plan?.after_dark_vnext?.status, "preview_only");
   check("proposed writes not applied", p.plan?.proposed_writes.applied, false);
+  // ---------------------------------------------------------------- Phase 3: integrity + review
+  check("integrity ok against the Phase 2 baseline", p.integrity.ok, true);
+  check("integrity source_hash matches", p.integrity.checks.find((c) => c.key === "source_hash")?.match, true);
+  check("integrity plan_hash matches", p.integrity.checks.find((c) => c.key === "plan_hash")?.match, true);
+  check("baseline commit 065013b", p.integrity.baseline.commit.slice(0, 7), "065013b");
+  const rv = p.review;
+  check("review present + read_only", rv?.read_only, true);
+  check("role review 36 roles / 66 seats, balances", [rv?.role_review.totals.roles, rv?.role_review.totals.seats, rv?.role_review.totals.balances].join("/"), "36/66/true");
+  check("runner unresolved, no decision", [rv?.runner_decision.classification, rv?.runner_decision.status, rv?.runner_decision.decision].join("/"), "unresolved/awaiting_human_decision/");
+  check("runner decision is null", rv?.runner_decision.decision, null);
+  check("runner has 4 options", rv?.runner_decision.options.length, 4);
+  check("credential review 9 rows (1 partial / 8 unresolved)", [rv?.credential_review.rows.length, rv?.credential_review.counts.partial, rv?.credential_review.counts.unresolved].join("/"), "9/1/8");
+  check("credential review grants nothing", rv?.credential_review.rows.every((c) => c.granted === false), true);
+  check("training review 35 rows (21 partial / 14 unresolved)", [rv?.training_review.rows.length, rv?.training_review.counts.partial, rv?.training_review.counts.unresolved].join("/"), "35/21/14");
+  check("training review completes nothing", rv?.training_review.rows.every((t) => t.completion_created === false), true);
+  check("template comparison 51 -> 72, bridge balances", [rv?.template_comparison?.totals.v1, rv?.template_comparison?.totals.vnext, rv?.template_comparison?.bridge_balances].join("/"), "51/72/true");
+  check("separation: Group entity only, no nonprofit roles", [rv?.separation.canonical_entities.join(","), rv?.separation.nonprofit_roles_in_taxonomy].join("/"), "sanctuary_lv_group/0");
+  const cl = rv?.approval_checklist;
+  check("production_authorized is false", cl?.production_authorized, false);
+  check("12 automated evidence items, all pass on this DB", [cl?.automated.length, cl?.automated.every((a) => a.status === "pass")].join("/"), "12/true");
+  check("nothing_imported evidence passes (0 rows)", cl?.automated.find((a) => a.key === "nothing_imported")?.status, "pass");
+  check("no_template_activation evidence passes (v1 only)", cl?.automated.find((a) => a.key === "no_template_activation")?.status, "pass");
+  check("10 human authorizations, every one pending with no approver", [cl?.human.length, cl?.human.every((h) => h.status === "pending" && h.authorized_by === null && h.authorized_at === null)].join("/"), "10/true");
+  check("recorded evidence is separate (8 items)", cl?.recorded.length, 8);
+
   const again = await admin.staffingTaxonomy.preview();
   check("preview is deterministic (same plan_hash)", again.plan?.plan_hash, p.plan?.plan_hash);
+  check("review is deterministic", JSON.stringify(again.review) === JSON.stringify(p.review), true);
   check("preview performs zero writes", JSON.stringify(await counts()), JSON.stringify(before));
 
   // ---------------------------------------------------------------- readiness row

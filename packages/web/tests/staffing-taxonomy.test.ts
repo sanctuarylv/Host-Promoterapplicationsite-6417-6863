@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ROLE_OPTIONS } from "../src/api/crew/contract";
@@ -15,9 +15,11 @@ import { AFTER_DARK_V1_ROLES } from "../src/api/ops/staffing/after-dark-v1";
 import { adaptCanonicalRows, CANONICAL_V1_COLUMNS, detectFormat, parseSource, type CanonicalRole } from "../src/api/ops/staffing/canonical";
 import { CANONICAL_V1_CSV, CANONICAL_V1_FILE, CANONICAL_V1_SHA256 } from "../src/api/ops/staffing/canonical-source";
 import { mapCredential } from "../src/api/ops/staffing/credentials";
+import { baselinePlanHash, checkIntegrity, REVIEWED_BASELINE, REVIEWED_PLAN_SHA256 } from "../src/api/ops/staffing/integrity";
+import { buildTaxonomyReview, RUNNER_ROLE_KEY } from "../src/api/ops/staffing/review";
 import { buildImportPlan, diffWrites, IMPORT_STATUS_BANNER, recordsForApply, stableStringify } from "../src/api/ops/staffing/plan";
 import { CANONICAL_ROLE_MAP, PUBLIC_ROLE_RENAMES, REVIEWED_SOURCE_SHA256, type CanonicalMapEntry } from "../src/api/ops/staffing/role-map";
-import { embeddedTaxonomy, TAXONOMY_STAGE_LABEL, TAXONOMY_STAGES, taxonomyStage } from "../src/api/ops/staffing/status";
+import { EMBEDDED_SOURCE, embeddedTaxonomy, TAXONOMY_STAGE_LABEL, TAXONOMY_STAGES, taxonomyStage } from "../src/api/ops/staffing/status";
 import { mapTraining } from "../src/api/ops/staffing/training";
 
 const WEB = resolve(import.meta.dir, "..");
@@ -336,6 +338,124 @@ describe("readiness", () => {
     expect(embeddedTaxonomy().stage).toBe("import_pending_approval");
     expect(taxonomyReadiness().stage_label).toBe("Import pending approval");
   });
+  test("five stages; reviewed source with a drifted plan hash is a baseline mismatch, never pending approval", () => {
+    expect(TAXONOMY_STAGES.length).toBe(5);
+    expect(TAXONOMY_STAGES.indexOf("baseline_mismatch")).toBe(TAXONOMY_STAGES.indexOf("reconciliation_ready") + 1);
+    expect(TAXONOMY_STAGES.indexOf("import_pending_approval")).toBe(TAXONOMY_STAGES.indexOf("baseline_mismatch") + 1);
+    expect(taxonomyStage(EMBEDDED_SOURCE, REVIEWED_SOURCE_SHA256, "different").stage).toBe("baseline_mismatch");
+    expect(TAXONOMY_STAGE_LABEL.baseline_mismatch).toMatch(/Baseline mismatch/);
+    expect(taxonomyReadiness("baseline_mismatch").detail).toContain("nothing imported");
+  });
+  test("plan hash is path-independent: same bytes at another path still reach pending approval", () => {
+    const moved = { text: CANONICAL_V1_CSV, source_hash: CANONICAL_V1_SHA256, source_file: "/tmp/elsewhere/workbook.csv" };
+    expect(taxonomyStage(moved).stage).toBe("import_pending_approval");
+    expect(baselinePlanHash(CANONICAL_V1_CSV, "csv", CANONICAL_V1_SHA256)).toBe(REVIEWED_PLAN_SHA256);
+  });
+});
+
+describe("integrity (Phase 2 baseline)", () => {
+  test("embedded source and plan match the reviewed baseline", () => {
+    const { plan: p } = embeddedTaxonomy();
+    const i = checkIntegrity(p!.source_hash, p!.plan_hash);
+    expect(i.ok).toBe(true);
+    expect(i.checks.map((c) => [c.key, c.match])).toEqual([["source_hash", true], ["plan_hash", true]]);
+    expect(REVIEWED_BASELINE.commit.startsWith("065013b")).toBe(true);
+    expect(REVIEWED_BASELINE.source_sha256).toBe("36dac8e8c7eb7ac529e25cdb217dc758582e6fecc4556163b81ad0ab35cf8892");
+    expect(REVIEWED_BASELINE.plan_sha256).toBe("8c22363803999b763305dc8961dcc6b7226271c15c28829ce14aff842cfcd701");
+  });
+  test("any drift fails closed", () => {
+    expect(checkIntegrity(CANONICAL_V1_SHA256, "x").ok).toBe(false);
+    expect(checkIntegrity("x", REVIEWED_PLAN_SHA256).ok).toBe(false);
+    expect(checkIntegrity(null, null).ok).toBe(false);
+    const edited = toCsv(withRow("SLVG-EVT-007", { baseline_headcount: "7" }));
+    expect(baselinePlanHash(edited, "csv", sha(edited))).not.toBe(REVIEWED_PLAN_SHA256);
+  });
+});
+
+describe("Phase 3 review (pure, read-only)", () => {
+  const p = embeddedTaxonomy().plan!;
+  const live = { stored_canonical_roles: null, after_dark_versions: [{ version: 1, status: "active" }] };
+  const r = buildTaxonomyReview(p, checkIntegrity(p.source_hash, p.plan_hash), live);
+
+  test("role review: 36 roles / 66 seats, balancing against the plan", () => {
+    expect(r.read_only).toBe(true);
+    expect(r.role_review.rows.length).toBe(36);
+    expect(r.role_review.totals).toEqual({ roles: 36, seats: 66, plan_roles: 36, plan_seats: 66, balances: true });
+    for (const g of [r.role_review.by_model, r.role_review.by_department, r.role_review.by_match]) {
+      expect(g.reduce((a, x) => a + x.roles, 0)).toBe(36);
+      expect(g.reduce((a, x) => a + x.seats, 0)).toBe(66);
+    }
+  });
+  test("runner stays unresolved with no decision, four unranked options", () => {
+    const d = r.runner_decision;
+    expect(d.role_key).toBe(RUNNER_ROLE_KEY);
+    expect(d.classification).toBe("unresolved");
+    expect(d.status).toBe("awaiting_human_decision");
+    expect(d.decision).toBeNull();
+    expect(d.decided_by).toBeNull();
+    expect(d.decided_at).toBeNull();
+    expect(d.options.map((o) => o.key)).toEqual(["keep_outside_taxonomy", "map_to_setup_breakdown_crew", "add_canonical_role", "retire_from_future_templates"]);
+    expect(d.current.v1_count).toBe(2);
+    expect(d.current.vnext_count).toBe(2);
+    expect(Object.values(CANONICAL_ROLE_MAP).some((m) => m.role_key === RUNNER_ROLE_KEY || m.legacy_key === RUNNER_ROLE_KEY)).toBe(false);
+    expect(r.role_review.rows.some((x) => x.role_key === RUNNER_ROLE_KEY)).toBe(false);
+  });
+  test("credential + training reviews cover every partial / unresolved mapping and grant nothing", () => {
+    const credGaps = p.credential_mappings.filter((c) => c.status !== "mapped");
+    expect(r.credential_review.rows.length).toBe(credGaps.length);
+    expect(r.credential_review.counts).toEqual({ mapped: 27, partial: 1, unresolved: 8 });
+    expect(r.credential_review.rows.every((c) => c.granted === false)).toBe(true);
+    expect(r.credential_review.covers_all_gaps).toBe(true);
+    const trainGaps = p.training_mappings.filter((t) => t.status !== "mapped");
+    expect(r.training_review.rows.length).toBe(trainGaps.length);
+    expect(r.training_review.counts).toEqual({ mapped: 1, partial: 21, unresolved: 14 });
+    expect(r.training_review.rows.every((t) => t.completion_created === false)).toBe(true);
+    expect(r.training_review.covers_all_gaps).toBe(true);
+  });
+  test("template comparison: 51 → 72 and the bridge balances", () => {
+    const t = r.template_comparison!;
+    expect(t.totals).toEqual({ v1: 51, vnext: 72, delta: 21 });
+    expect(t.bridge_balances).toBe(true);
+    expect(t.bridge.reduce((a, b) => a + b.seats, 0)).toBe(72);
+    expect(t.by_workforce.reduce((a, w) => a + w.v1, 0)).toBe(51);
+    expect(t.by_workforce.reduce((a, w) => a + w.vnext, 0)).toBe(72);
+    expect(t.status).toBe("preview_only");
+  });
+  test("nonprofit Serve Team is separate", () => {
+    expect(r.separation.canonical_entities).toEqual(["sanctuary_lv_group"]);
+    expect(r.separation.nonprofit_roles_in_taxonomy).toBe(0);
+    expect(r.separation.excluded_nonprofit_roles).toContain("serve_coordinator");
+  });
+  test("checklist: automated evidence passes, every human authorization pending, production not authorized", () => {
+    const c = r.approval_checklist;
+    expect(c.production_authorized).toBe(false);
+    expect(c.automated.length).toBe(12);
+    expect(c.automated.every((a) => a.status === "pass")).toBe(true);
+    expect(c.automated_ok).toBe(true);
+    expect(c.recorded.length).toBe(8);
+    expect(c.human.length).toBe(10);
+    for (const h of c.human) {
+      expect(h.status).toBe("pending");
+      expect(h.authorized_by).toBeNull();
+      expect(h.authorized_at).toBeNull();
+    }
+    // Automated evidence never satisfies a human authorization.
+    expect(new Set(c.automated.map((a) => a.key)).size + new Set(c.human.map((h) => h.key)).size).toBe(22);
+  });
+  test("automated evidence fails on hash drift, stored rows or a vNext template version", () => {
+    const bad = buildTaxonomyReview(p, checkIntegrity(p.source_hash, p.plan_hash, { source: "x", plan: "y" }), live);
+    const st = (rv: typeof r, k: string) => rv.approval_checklist.automated.find((a) => a.key === k)!.status;
+    expect(st(bad, "source_hash")).toBe("fail");
+    expect(st(bad, "plan_hash")).toBe("fail");
+    expect(bad.approval_checklist.automated_ok).toBe(false);
+    expect(bad.approval_checklist.production_authorized).toBe(false);
+    const imported = buildTaxonomyReview(p, checkIntegrity(p.source_hash, p.plan_hash), { ...live, stored_canonical_roles: 36 });
+    expect(st(imported, "nothing_imported")).toBe("fail");
+    const activated = buildTaxonomyReview(p, checkIntegrity(p.source_hash, p.plan_hash), { ...live, after_dark_versions: [{ version: 1, status: "archived" }, { version: 2, status: "active" }] });
+    expect(st(activated, "no_template_activation")).toBe("fail");
+    const unreadable = buildTaxonomyReview(p, checkIntegrity(p.source_hash, p.plan_hash), { stored_canonical_roles: null, after_dark_versions: null });
+    expect(st(unreadable, "no_template_activation")).toBe("not_available");
+  });
 });
 
 // ── Disposable temp DB: dry run writes nothing; apply twice is idempotent; history untouched ──
@@ -382,6 +502,26 @@ describe("importer CLI on a disposable local DB", () => {
     expect(run("--apply", "--target", "local").code).toBe(2);
     expect(run("--apply", "--target", "local", "--confirm-source-hash=deadbeef").code).toBe(2);
   });
+  test("apply is refused without, or with a wrong, --confirm-plan-hash (Phase 2 baseline pin)", () => {
+    const noPlan = run("--apply", "--target", "local", `--confirm-source-hash=${CANONICAL_V1_SHA256}`);
+    expect(noPlan.code).toBe(2);
+    expect(noPlan.out).toContain("integrity source_hash: MATCH");
+    expect(noPlan.out).toContain("integrity plan_hash: MATCH");
+    expect(run("--apply", "--target", "local", `--confirm-source-hash=${CANONICAL_V1_SHA256}`, "--confirm-plan-hash=deadbeef").code).toBe(2);
+  });
+  test("a valid but unreviewed source is refused even with its own hash confirmed", () => {
+    const edited = toCsv(withRow("SLVG-EVT-007", { baseline_headcount: "7" }));
+    const f = join(dir, "edited.csv");
+    writeFileSync(f, edited);
+    const before = sha(readFileSync(dbFile));
+    const env = { ...process.env, DATABASE_URL: url, DATABASE_AUTH_TOKEN: "local-file" };
+    const r = Bun.spawnSync(["bun", "scripts/workbook-import.ts", "--file", f, "--out", out, "--apply", "--target", "local", `--confirm-source-hash=${sha(edited)}`, `--confirm-plan-hash=${REVIEWED_PLAN_SHA256}`], { cwd: WEB, env });
+    const o = `${r.stdout.toString()}${r.stderr.toString()}`;
+    expect(r.exitCode).toBe(2);
+    expect(o).toContain("integrity source_hash: MISMATCH");
+    expect(o).toContain("not the Phase 2 reviewed source");
+    expect(sha(readFileSync(dbFile))).toBe(before);
+  });
   test("apply twice: 36 rows, no duplicates, second run writes nothing; history unchanged", async () => {
     const { createClient } = await import("@libsql/client");
     c = createClient({ url }) as unknown as Lib;
@@ -389,10 +529,10 @@ describe("importer CLI on a disposable local DB", () => {
     const tpl = JSON.stringify(await q("select count(*) n from ops_template_roles"));
     c.close();
 
-    const first = run("--apply", "--target", "local", `--confirm-source-hash=${CANONICAL_V1_SHA256}`);
+    const first = run("--apply", "--target", "local", `--confirm-source-hash=${CANONICAL_V1_SHA256}`, `--confirm-plan-hash=${REVIEWED_PLAN_SHA256}`);
     expect(first.code).toBe(0);
     expect(first.out).toContain("wrote 36");
-    const second = run("--apply", "--target", "local", `--confirm-source-hash=${CANONICAL_V1_SHA256}`);
+    const second = run("--apply", "--target", "local", `--confirm-source-hash=${CANONICAL_V1_SHA256}`, `--confirm-plan-hash=${REVIEWED_PLAN_SHA256}`);
     expect(second.code).toBe(0);
     expect(second.out).toContain("wrote 0");
     expect(second.out).toContain("unchanged 36");

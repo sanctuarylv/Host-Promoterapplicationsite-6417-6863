@@ -402,3 +402,33 @@ any production database; only local temp databases were written. Details: `STAFF
 Brand naming: the public and staff surfaces now say **Sanctuary LV Group** (header/footer wordmark, page
 titles, meta tags, landing copy). The nonprofit Serve Team page (`/serve`) keeps **Sanctuary LV** in its header
 and footer, and every reference to the nonprofit entity ("Sanctuary LV nonprofit") is unchanged.
+
+## Phase 3: read-only taxonomy review, baseline integrity, recovery rehearsal
+
+Local only. Nothing was pushed, merged, deployed, migrated or imported. Production is unchanged. Base: `065013b`.
+The full evidence, blockers and the sign-off block are in [`PRODUCTION_APPROVAL_PACKAGE_V3.md`](./PRODUCTION_APPROVAL_PACKAGE_V3.md).
+The panel content is in [`STAFFING_TAXONOMY_REVIEW_V3.md`](./STAFFING_TAXONOMY_REVIEW_V3.md).
+
+| Item | Result |
+|---|---|
+| Source hash vs Phase 2 baseline | `36dac8e8c7eb7ac529e25cdb217dc758582e6fecc4556163b81ad0ab35cf8892`: MATCH |
+| Plan hash vs Phase 2 baseline | `8c22363803999b763305dc8961dcc6b7226271c15c28829ce14aff842cfcd701`: MATCH (path-independent) |
+| New readiness stage | `baseline_mismatch` (5 stages). `--apply` also requires `--confirm-plan-hash` |
+| Review panels | role reconciliation, runner decision record, credential gaps, training gaps, After Dark v1 → vNext comparison, approval checklist. All display-only |
+| Evidence vs authorization | 12 automated and 8 recorded evidence items are kept separate from 10 human authorizations, all `pending`. `production_authorized: false` |
+| `runner` | unresolved. Decision `None`, 4 unranked options. Record and allocations unchanged |
+| Serve Team | unchanged. 0 nonprofit roles in the taxonomy; `serve_coordinator` excluded |
+
+| Check | Result |
+|---|---|
+| Typecheck | 0 errors each (app, scripts, node) |
+| Lint *(root)* | 0 warnings, 0 errors |
+| Unit | 105/105 |
+| Integration | `authz` 102, `limits` 23, `outbox` 69, `cutover` 21, `campaigns` 40, `listing` 25, `taxonomy` 46. All pass |
+| e2e | `public-api` 47, `auth-smoke` 18, `workflow` 51. All pass |
+| Browser | `taxonomy_review` 48/48, `pathways` 29/29, `console_v2` 34/34 (one flaky focus check, passed on rerun), `apply_roles` 70/70, `pipeline_ui` 23/23, `operations` 38/38 |
+| Build *(root)* | pass, main chunk 447.60 kB |
+| Migration rehearsal | PASS (as in Phase 2; apply now passes `--confirm-plan-hash`) |
+| Recovery rehearsal | PASS, 19 checks (R1–R4). R4: the current code fails on the pre-0002 schema, so app and schema roll back together |
+| Unverified | Turso PITR / branch restore, DROP COLUMN and journal-row removal on Turso, the previous build on a rolled-back schema, `.dump` restore (U1–U5) |
+| Schema drift | "No schema changes, nothing to migrate" |

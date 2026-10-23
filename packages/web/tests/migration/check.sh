@@ -55,14 +55,15 @@ echo "== seed-planning #2 (must change nothing)"; bun scripts/seed-planning.ts |
 cmp -s <(python3 -c "import json;print(json.load(open('$WORK/s1.json'))['counts'])") <(python3 -c "import json;print(json.load(open('$WORK/s2.json'))['counts'])") || fail "seed not idempotent"
 CSV="data/staffing/sanctuary_lv_group_36_role_canonical_v1.csv"
 HASH="$(sha256sum "$CSV" | cut -d' ' -f1)"
+PLANHASH="8c22363803999b763305dc8961dcc6b7226271c15c28829ce14aff842cfcd701"   # Phase 2 reviewed baseline (src/api/ops/staffing/integrity.ts)
 ops() { python3 -c "import sqlite3,sys;c=sqlite3.connect('file:$DB?mode=ro',uri=True);print([c.execute(f'select count(*) from {t}').fetchone()[0] for t in ['ops_canonical_roles','ops_template_roles','ops_assignments','crew_training_records']])"; }
 echo "== staffing import dry-run (must write nothing)"
 H0="$(sha256sum "$DB" | cut -d' ' -f1)"; O0="$(ops)"
 bun scripts/workbook-import.ts --file "$CSV" --dry-run --target local --out "$WORK/plan.json" | tail -2
 [ "$H0" = "$(sha256sum "$DB" | cut -d' ' -f1)" ] || fail "importer dry-run wrote to the database"
-echo "== staffing import apply (local rehearsal)"; bun scripts/workbook-import.ts --file "$CSV" --apply --target local --confirm-source-hash="$HASH" --out "$WORK/plan1.json" | tail -2
+echo "== staffing import apply (local rehearsal)"; bun scripts/workbook-import.ts --file "$CSV" --apply --target local --confirm-source-hash="$HASH" --confirm-plan-hash="$PLANHASH" --out "$WORK/plan1.json" | tail -2
 O1="$(ops)"
-echo "== staffing import re-apply (must write nothing)"; bun scripts/workbook-import.ts --file "$CSV" --apply --target local --confirm-source-hash="$HASH" --out "$WORK/plan2.json" | grep -q "wrote 0 " || fail "importer not idempotent"
+echo "== staffing import re-apply (must write nothing)"; bun scripts/workbook-import.ts --file "$CSV" --apply --target local --confirm-source-hash="$HASH" --confirm-plan-hash="$PLANHASH" --out "$WORK/plan2.json" | grep -q "wrote 0 " || fail "importer not idempotent"
 O2="$(ops)"; echo "  [canonical, template_roles, assignments, training_records] before=$O0 after=$O2"
 [ "$O1" = "$O2" ] || fail "re-apply changed counts"
 python3 - "$O0" "$O2" <<'PY' || fail "importer touched template roles / assignments / training"
