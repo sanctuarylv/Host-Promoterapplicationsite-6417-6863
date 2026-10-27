@@ -1,0 +1,77 @@
+{
+ "mode": "natural",
+ "attempts": 6,
+ "focused": 5,
+ "not_focused": 1,
+ "errors": 0,
+ "not_focused_with_null_lookup": 1,
+ "focused_with_found_lookup": 5,
+ "results": [
+  {
+   "attempt": 0,
+   "focused": true,
+   "active": "serve-done",
+   "lookups": [
+    {
+     "found": true,
+     "t": 7278.599999964237
+    }
+   ]
+  },
+  {
+   "attempt": 1,
+   "focused": true,
+   "active": "serve-done",
+   "lookups": [
+    {
+     "found": true,
+     "t": 7144.699999988079
+    }
+   ]
+  },
+  {
+   "attempt": 2,
+   "focused": false,
+   "active": "BODY",
+   "lookups": [
+    {
+     "found": false,
+     "t": 7094.799999952316
+    }
+   ]
+  },
+  {
+   "attempt": 3,
+   "focused": true,
+   "active": "serve-done",
+   "lookups": [
+    {
+     "found": true,
+     "t": 7194.699999988079
+    }
+   ]
+  },
+  {
+   "attempt": 4,
+   "focused": true,
+   "active": "serve-done",
+   "lookups": [
+    {
+     "found": true,
+     "t": 7221.899999976158
+    }
+   ]
+  },
+  {
+   "attempt": 5,
+   "focused": true,
+   "active": "serve-done",
+   "lookups": [
+    {
+     "found": true,
+     "t": 7100.199999988079
+    }
+   ]
+  }
+ ]
+}

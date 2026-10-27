@@ -2,6 +2,8 @@ import { Empty, ErrorNote, Loading, PageTitle, Panel, Stat, Tag, humanize } from
 import {
   ApprovalChecklistPanel,
   CredentialReviewPanel,
+  DecisionRegisterPanel,
+  ResolutionMatrixPanel,
   RoleReviewPanel,
   RunnerDecisionPanel,
   Table,
@@ -17,11 +19,15 @@ import { useStaffingTaxonomyPreview } from "../../queries/staffing-taxonomy";
  * approved operation (docs/STAFFING_IMPORT_RUNBOOK_V2.md). Phase 3 adds the
  * operational review panels (role review, runner decision, credential and
  * training reconciliation, v1 vs vNext comparison, approval checklist) —
- * display only (docs/STAFFING_TAXONOMY_REVIEW_V3.md).
+ * display only (docs/STAFFING_TAXONOMY_REVIEW_V3.md). Phase 4 adds the decision
+ * register and the credential / training resolution matrix — also display
+ * only, every row pending / proposed (docs/OPERATIONAL_DECISION_REGISTER_V4.md).
  */
 
 const SECTIONS: [string, string][] = [
   ["approval-checklist", "Approval checklist"],
+  ["decision-register", "Decision register"],
+  ["resolution-matrix", "Resolution matrix"],
   ["role-review", "Role review"],
   ["runner-decision", "Runner decision"],
   ["credential-review", "Credential review"],
@@ -39,7 +45,7 @@ export default function TaxonomyPage() {
   const q = useStaffingTaxonomyPreview();
   if (q.isPending) return <Loading />;
   if (q.error || !q.data) return <ErrorNote error={q.error} />;
-  const { plan, stage, stage_label, import_status, stored_canonical_roles, review, integrity } = q.data;
+  const { plan, stage, stage_label, import_status, stored_canonical_roles, review, integrity, resolution_matrix, decision_register } = q.data;
 
   const banner = (
     <output data-testid="import-status" className="block border-2 border-white bg-white/5 px-4 py-3">
@@ -88,6 +94,8 @@ export default function TaxonomyPage() {
       {review && (
         <>
           <ApprovalChecklistPanel list={review.approval_checklist} integrity={integrity} />
+          {decision_register && <DecisionRegisterPanel reg={decision_register} />}
+          {resolution_matrix && <ResolutionMatrixPanel m={resolution_matrix} />}
           <RoleReviewPanel review={review.role_review} />
           <RunnerDecisionPanel d={review.runner_decision} />
           <CredentialReviewPanel review={review.credential_review} />

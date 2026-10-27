@@ -10,6 +10,11 @@
  * Phase 3 adds, NEXT TO the unchanged plan: hash integrity against the Phase 2
  * baseline and the read-only operational review (ops/staffing/review.ts). The
  * only database access is the two SELECTs below.
+ *
+ * Phase 4 adds, also NEXT TO the plan: the proposed credential / training
+ * resolution matrix (ops/staffing/resolution.ts) and the operational decision
+ * register (ops/staffing/decisions.ts). Both are pure, every row is proposed /
+ * pending, and neither adds a database access or a write path.
  */
 import { sql } from "drizzle-orm";
 import { staffProc } from "../middleware/auth";
@@ -17,6 +22,8 @@ import { db } from "../database";
 import { requireCan } from "../shared/permissions";
 import { checkIntegrity } from "../ops/staffing/integrity";
 import { IMPORT_STATUS_BANNER } from "../ops/staffing/plan";
+import { buildDecisionRegister } from "../ops/staffing/decisions";
+import { buildResolutionMatrix } from "../ops/staffing/resolution";
 import { buildTaxonomyReview } from "../ops/staffing/review";
 import { embeddedTaxonomy, TAXONOMY_STAGE_LABEL } from "../ops/staffing/status";
 
@@ -49,6 +56,8 @@ export const staffingTaxonomy = {
     const stored_canonical_roles = await storedCanonicalRoles();
     const integrity = checkIntegrity(plan?.source_hash ?? null, plan?.ok ? plan.plan_hash : null);
     const review = plan?.ok ? buildTaxonomyReview(plan, integrity, { stored_canonical_roles, after_dark_versions: await afterDarkVersions() }) : null;
+    const resolution_matrix = plan?.ok && review ? buildResolutionMatrix(plan, review) : null;
+    const decision_register = review && resolution_matrix ? buildDecisionRegister(review, resolution_matrix) : null;
     return {
       import_status: IMPORT_STATUS_BANNER,
       stage,
@@ -57,6 +66,8 @@ export const staffingTaxonomy = {
       integrity,
       plan,
       review,
+      resolution_matrix,
+      decision_register,
     };
   }),
 };

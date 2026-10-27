@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import type { DecisionRegister } from "../../../api/ops/staffing/decisions";
 import type { Integrity } from "../../../api/ops/staffing/integrity";
+import type { ResolutionMatrix } from "../../../api/ops/staffing/resolution";
 import type { TaxonomyReview } from "../../../api/ops/staffing/review";
 import { Panel, Stat, Tag, humanize } from "../console/ui";
 
@@ -11,7 +13,12 @@ import { Panel, Stat, Tag, humanize } from "../console/ui";
 
 export function Table({ caption, head, children, testId, min = 720 }: { caption: string; head: string[]; children: ReactNode; testId: string; min?: number }) {
   return (
-    <div className="overflow-x-auto">
+    <div
+      className="overflow-x-auto"
+      // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable (axe scrollable-region-focusable, WCAG 2.1.1)
+      tabIndex={0}
+      aria-label={`${caption} table — scroll horizontally`}
+    >
       <table className="cx-table" style={{ minWidth: min }} data-testid={testId}>
         <caption className="sr-only">{caption}</caption>
         <thead>
@@ -425,6 +432,244 @@ export function ApprovalChecklistPanel({ list, integrity }: { list: TaxonomyRevi
             ))}
           </Table>
           <p className="mt-2 text-xs text-white/70">Sign-off: {list.sign_off_location}</p>
+        </section>
+      </div>
+    </Panel>
+  );
+}
+
+// ── Phase 4: decision register + resolution matrix (display only) ───────────
+
+const zones = (zs: readonly string[] | null) => (zs === null ? <span className="text-white/60">not in v1</span> : zs.length ? <span className="font-mono text-xs">{zs.join(", ")}</span> : <span className="text-white/60">none</span>);
+const DOMAIN_LABEL: Record<string, string> = { sanctuary_lv_group: "Sanctuary LV Group", sanctuary_lv_nonprofit: "Sanctuary LV (nonprofit Serve Team)" };
+const domainLabel = (d: string) => DOMAIN_LABEL[d] ?? humanize(d);
+const deltaTone = (s: string) => (s === "same" ? "muted" : s === "narrows" || s === "expands" || s === "changes" ? "warn" : "default");
+
+export function DecisionRegisterPanel({ reg }: { reg: DecisionRegister }) {
+  const c = reg.counts;
+  return (
+    <Panel id="decision-register" title={`Operational decision register — ${c.total} decisions · ${c.pending} pending`} eyebrow="Every decision is pending. Nothing here records, recommends or applies a decision.">
+      <div data-testid="decision-register" data-production-authorized={String(reg.production_authorized)} data-total={c.total} data-pending={c.pending} className="space-y-5">
+        <div className="border-2 border-white px-4 py-3">
+          <p className="font-bold">
+            Decisions recorded: <span data-testid="decisions-decided">{c.decided}</span> · Production authorized: <span>No</span>
+          </p>
+          <p className="mt-1 text-sm text-white/80">{reg.summary}</p>
+          <p className="mt-1 text-xs text-white/70">Recording: {reg.recording}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="Decisions" value={c.total} />
+          <Stat label="Pending" value={c.pending} />
+          <Stat label="Decided" value={c.decided} />
+          <Stat label="Domains" value={Object.keys(c.by_domain).length} hint={Object.entries(c.by_domain).map(([d, n]) => `${domainLabel(d)} ${n}`).join(" · ")} />
+        </div>
+        <ul className="flex flex-wrap gap-2 text-xs" aria-label="Decisions by category">
+          {Object.entries(c.by_category).map(([k, n]) => (
+            <li key={k}>
+              <Tag tone="muted">
+                {humanize(k)}: {n}
+              </Tag>
+            </li>
+          ))}
+        </ul>
+
+        <section aria-labelledby="reg-gates">
+          <h3 id="reg-gates" className="text-sm font-bold uppercase tracking-wide">
+            Release gates (all closed)
+          </h3>
+          <Table caption="Release gates" testId="release-gates" min={760} head={["Gate", "Description", "Blocked by decisions", "Requires authorizations", "Open"]}>
+            {reg.gates.map((g) => (
+              <tr key={g.key} data-gate={g.key} data-open={String(g.open)}>
+                <td className="font-mono text-xs">{g.key}</td>
+                <td>{g.label}</td>
+                <td>{g.blocked_by}</td>
+                <td className="font-mono text-xs">{g.requires_authorizations.join(", ")}</td>
+                <td>
+                  <Tag tone="warn">No</Tag>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </section>
+
+        <section aria-labelledby="reg-auth">
+          <h3 id="reg-auth" className="text-sm font-bold uppercase tracking-wide">
+            Human authorizations (all pending)
+          </h3>
+          <Table caption="Authorizations" testId="register-authorizations" min={760} head={["Authorization", "Owner", "Covers", "Status"]}>
+            {reg.authorizations.map((a) => (
+              <tr key={a.key} data-auth={a.key} data-status={a.status}>
+                <td>{a.label}</td>
+                <td className="text-xs">{a.owner}</td>
+                <td className="text-xs text-white/75">{a.covers.length === 1 ? "1 decision" : `${a.covers.length} decisions`}</td>
+                <td>
+                  <Tag tone="warn">{humanize(a.status)}</Tag>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </section>
+
+        <section aria-labelledby="reg-items">
+          <h3 id="reg-items" className="text-sm font-bold uppercase tracking-wide">
+            Decisions
+          </h3>
+          <Table caption="Operational decisions" testId="decision-items" min={1280} head={["ID", "Category", "Domain", "Question", "Options (unranked)", "Owner", "Blocks", "Status", "Decision"]}>
+            {reg.items.map((d) => (
+              <tr key={d.id} data-decision={d.id} data-status={d.status} data-domain={d.domain}>
+                <td className="font-mono text-xs">{d.id}</td>
+                <td className="text-xs">{humanize(d.category)}</td>
+                <td className="text-xs">{domainLabel(d.domain)}</td>
+                <td className="text-xs">
+                  {d.question}
+                  {d.context.length > 0 && (
+                    <ul className="mt-1 list-disc pl-4 text-white/65">
+                      {d.context.map((x) => (
+                        <li key={x}>{x}</li>
+                      ))}
+                    </ul>
+                  )}
+                </td>
+                <td className="text-xs">
+                  <ul className="space-y-0.5">
+                    {d.options.map((o) => (
+                      <li key={o.key}>
+                        <span className="font-mono">{o.key}</span> — {o.label}
+                      </li>
+                    ))}
+                  </ul>
+                </td>
+                <td className="text-xs">{d.owner}</td>
+                <td className="font-mono text-xs">{d.blocks.join(", ") || "—"}</td>
+                <td>
+                  <Tag tone="warn">{humanize(d.status)}</Tag>
+                </td>
+                <td>
+                  <span className="text-white/60">none</span>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </section>
+      </div>
+    </Panel>
+  );
+}
+
+export function ResolutionMatrixPanel({ m }: { m: ResolutionMatrix }) {
+  const cc = m.credentials.counts;
+  const tc = m.training.counts;
+  return (
+    <Panel id="resolution-matrix" title="Credential and training resolution matrix" eyebrow="Proposals only — no credential, zone or permission is granted and no training completion is created.">
+      <div data-testid="resolution-matrix" data-granted-any={String(m.granted_any)} data-completions={m.completions_created} className="space-y-5">
+        <div className="border-2 border-white px-4 py-3">
+          <p className="font-bold">
+            Credentials granted: <span data-testid="resolution-granted">No</span> · Training completions created: <span data-testid="resolution-completions">{m.completions_created}</span>
+          </p>
+          <p className="mt-1 text-sm text-white/80">{m.note}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="Credential gaps" value={cc.gaps} hint={`with zones ${cc.proposed_with_zones} · no zone ${cc.proposed_no_zone}`} />
+          <Stat label="Conditional tokens" value={cc.conditional_tokens} hint="Never auto-granted" />
+          <Stat label="Training gaps" value={tc.gaps} hint={`${m.training.phrase_count} phrases`} />
+          <Stat label="Proposed new modules" value={m.training.proposed_new_modules.length} hint="None exist yet" />
+        </div>
+
+        <section aria-labelledby="res-cred">
+          <h3 id="res-cred" className="text-sm font-bold uppercase tracking-wide">
+            Credential proposals
+          </h3>
+          <Table caption="Credential resolution proposals" testId="resolution-credentials" min={1500} head={["Canonical ID", "Role", "Source text", "v1 zones", "Plan zones", "Proposed zones", "Never automatic", "Vs v1", "Confidence", "Open questions", "Granted"]}>
+            {m.credentials.rows.map((r) => (
+              <tr key={r.canonical_role_id} data-role={r.role_key} data-granted={String(r.granted)} data-status={r.status}>
+                <td className="font-mono text-xs">{r.canonical_role_id}</td>
+                <td>
+                  {r.display_name}
+                  <div className="font-mono text-xs text-white/60">{r.role_key}</div>
+                </td>
+                <td className="text-xs">{r.source_text}</td>
+                <td>{zones(r.v1_zones)}</td>
+                <td>{zones(r.plan_zones)}</td>
+                <td>{zones(r.proposed_zones)}</td>
+                <td className="font-mono text-xs">{r.conditional_never_auto.join(", ") || "—"}</td>
+                <td>{r.delta_vs_v1 ? <Tag tone={deltaTone(r.delta_vs_v1.summary)}>{humanize(r.delta_vs_v1.summary)}</Tag> : <span className="text-white/60">—</span>}</td>
+                <td className="text-xs">{r.confidence}</td>
+                <td className="text-xs text-white/75" style={{ minWidth: 280 }}>
+                  {r.open_questions.join(" · ") || "—"}
+                </td>
+                <td>No</td>
+              </tr>
+            ))}
+          </Table>
+        </section>
+
+        <section aria-labelledby="res-zone">
+          <h3 id="res-zone" className="text-sm font-bold uppercase tracking-wide">
+            Zone reconciliation vs After Dark v1
+          </h3>
+          <Table caption="Zone reconciliation vs v1" testId="zone-reconciliation" min={900} head={["Role", "Canonical ID", "v1 zones", "Plan zones", "Delta", "Added", "Removed"]}>
+            {m.credentials.zone_reconciliation.map((z) => (
+              <tr key={z.canonical_role_id} data-role={z.role_key} data-delta={z.delta.summary}>
+                <td className="font-mono text-xs">{z.role_key}</td>
+                <td className="font-mono text-xs">{z.canonical_role_id}</td>
+                <td>{zones(z.v1_zones)}</td>
+                <td>{zones(z.plan_zones)}</td>
+                <td>
+                  <Tag tone={deltaTone(z.delta.summary)}>{humanize(z.delta.summary)}</Tag>
+                </td>
+                <td>{mono(z.delta.added.join(", "))}</td>
+                <td>{mono(z.delta.removed.join(", "))}</td>
+              </tr>
+            ))}
+          </Table>
+          <ul className="mt-2 space-y-1 text-xs text-white/80" data-testid="security-flags" aria-label="Security flags">
+            {m.credentials.security_flags.map((f) => (
+              <li key={f}>
+                <Tag tone="warn">flag</Tag> {f}
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section aria-labelledby="res-train">
+          <h3 id="res-train" className="text-sm font-bold uppercase tracking-wide">
+            Training proposals
+          </h3>
+          <Table caption="Training resolution proposals" testId="resolution-training" min={1200} head={["Canonical ID", "Role", "Plan modules", "Proposed existing", "Proposed new", "External / conditional", "v1 modules dropped", "Completion created"]}>
+            {m.training.rows.map((r) => (
+              <tr key={r.canonical_role_id} data-role={r.role_key} data-completion={String(r.completion_created)} data-status={r.status}>
+                <td className="font-mono text-xs">{r.canonical_role_id}</td>
+                <td>
+                  {r.display_name}
+                  <div className="font-mono text-xs text-white/60">{r.role_key}</div>
+                </td>
+                <td>{mono(r.plan_modules.join(", "))}</td>
+                <td>{mono(r.proposed_existing_modules.join(", "))}</td>
+                <td>{mono(r.proposed_new_modules.join(", "))}</td>
+                <td className="text-xs">{r.external_requirements.join("; ") || "—"}</td>
+                <td>{r.v1_modules_not_in_plan.length ? <Tag tone="warn">{r.v1_modules_not_in_plan.join(", ")}</Tag> : "—"}</td>
+                <td>No</td>
+              </tr>
+            ))}
+          </Table>
+        </section>
+
+        <section aria-labelledby="res-mods">
+          <h3 id="res-mods" className="text-sm font-bold uppercase tracking-wide">
+            Proposed new training modules (none exist)
+          </h3>
+          <Table caption="Proposed new training modules" testId="proposed-modules" min={900} head={["Module key", "Title", "Summary", "Verification", "Roles", "Exists"]}>
+            {m.training.proposed_new_modules.map((p) => (
+              <tr key={p.key} data-module={p.key} data-exists={String(p.exists)}>
+                <td className="font-mono text-xs">{p.key}</td>
+                <td>{p.title}</td>
+                <td className="text-xs text-white/75">{p.summary}</td>
+                <td className="text-xs">{humanize(p.verification)}</td>
+                <td className="font-mono text-xs">{p.roles.join(", ")}</td>
+                <td>No</td>
+              </tr>
+            ))}
+          </Table>
         </section>
       </div>
     </Panel>

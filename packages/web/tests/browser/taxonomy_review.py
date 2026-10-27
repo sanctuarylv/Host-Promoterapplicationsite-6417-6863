@@ -18,6 +18,12 @@ Environment:
   CREW_ADMIN_EMAIL   default admin.test@example.com
   CREW_PASSWORD      default correct-horse-battery
   CREW_SHOTS         optional directory for screenshots
+  CREW_AXE_PATH      path to axe.min.js (axe-core 4.x); axe check skipped if unset
+
+Phase 4 adds the decision register (90 decisions, every one pending, 8 closed
+gates, 11 pending authorizations) and the credential / training resolution
+matrix (9 credential proposals, 35 training proposals, granted No, 0
+completions, 17 proposed modules that do not exist) — both display only.
 Writes a JSON report to stdout; exit code 1 on any failure.
 """
 import asyncio, json, os, re, sys
@@ -27,11 +33,13 @@ BASE = os.environ.get("CREW_BASE", "http://localhost:4200")
 ADMIN = os.environ.get("CREW_ADMIN_EMAIL", "admin.test@example.com")
 PW = os.environ.get("CREW_PASSWORD", "correct-horse-battery")
 SHOTS = os.environ.get("CREW_SHOTS")
+AXE_PATH = os.environ.get("CREW_AXE_PATH")
+AXE = open(AXE_PATH).read() if AXE_PATH else None
 if not BASE.startswith(("http://localhost", "http://127.0.0.1")):
     sys.exit("refusing to run against a non-local server")
 OUT = {"checks": [], "skipped": []}
 
-PANELS = ["approval-checklist", "role-review", "runner-decision", "credential-review", "training-review", "template-comparison"]
+PANELS = ["approval-checklist", "decision-register", "resolution-matrix", "role-review", "runner-decision", "credential-review", "training-review", "template-comparison"]
 # oRPC procedures this page may call. Anything else (and any non-GET outside /api/rpc) is a failure.
 # oRPC reads are POSTs, so the check is on the procedure name, not the method.
 ALLOWED_RPC = {"staffingTaxonomy/preview", "me/session"}
@@ -39,6 +47,19 @@ ALLOWED_RPC = {"staffingTaxonomy/preview", "me/session"}
 
 def ck(name, ok, info=""):
     OUT["checks"].append({"name": name, "pass": bool(ok), "info": str(info)[:250]})
+
+
+async def axe(p, name, include=None):
+    if not AXE:
+        OUT["skipped"].append(f"axe {name} (CREW_AXE_PATH unset)")
+        return
+    await p.add_script_tag(content=AXE)
+    ctx = json.dumps({"include": include}) if include else "document"
+    v = await p.evaluate(
+        f"axe.run({ctx},{{runOnly:{{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','wcag22aa']}}}})"
+        ".then(r=>r.violations.map(v=>({id:v.id,n:v.nodes.length})))"
+    )
+    ck(f"axe {name}", len(v) == 0, v)
 
 
 async def text(p, sel="body"):
@@ -94,7 +115,7 @@ async def main():
             interactive = await p.locator(f"section#{pid}").locator("button, input, select, textarea, form, [contenteditable=true]").count()
             ck(f"panel #{pid} is display-only (no controls)", interactive == 0, interactive)
         nav = await p.locator("nav a[href^='#']").evaluate_all("els => els.map(e => e.getAttribute('href'))")
-        ck("section nav links to all six panels", all(f"#{pid}" in nav for pid in PANELS), nav)
+        ck("section nav links to all review panels", all(f"#{pid}" in nav for pid in PANELS), nav)
 
         # Approval checklist
         ap = p.locator("[data-testid='approval-checklist']")
@@ -115,6 +136,51 @@ async def main():
         statuses = await human_rows.evaluate_all("rs => rs.map(r => r.lastElementChild.textContent.trim().toLowerCase())")
         ck("checklist: every human authorization pending", hn > 0 and all("pending" in s for s in statuses), statuses)
         ck("checklist: no human authorization shows approved", not any(re.search(r"\b(approved|authorized)\b", s) for s in statuses), statuses)
+
+        # Phase 4: decision register
+        dr = p.locator("[data-testid='decision-register']")
+        ck("register: data-production-authorized=false", await dr.get_attribute("data-production-authorized") == "false")
+        ck("register: 90 total / 90 pending", await dr.get_attribute("data-total") == "90" and await dr.get_attribute("data-pending") == "90")
+        ck("register: decided = 0", (await text(p, "[data-testid='decisions-decided']")).strip() == "0")
+        items = p.locator("[data-testid='decision-items'] tbody tr")
+        n_items = await items.count()
+        ck("register: 90 decision rows", n_items == 90, n_items)
+        st = await items.evaluate_all("rs => rs.map(r => r.getAttribute('data-status'))")
+        ck("register: every decision data-status=pending", n_items > 0 and set(st) == {"pending"}, sorted(set(st)))
+        dec = await items.evaluate_all("rs => rs.map(r => r.lastElementChild.textContent.trim().toLowerCase())")
+        ck("register: every decision value 'none'", n_items > 0 and set(dec) == {"none"}, sorted(set(dec)))
+        doms = await items.evaluate_all("rs => rs.map(r => r.getAttribute('data-domain'))")
+        ck("register: 89 Group + 1 nonprofit (serve patch only)", doms.count("sanctuary_lv_group") == 89 and doms.count("sanctuary_lv_nonprofit") == 1, {d: doms.count(d) for d in set(doms)})
+        srv = await p.locator("[data-decision='D-SRV-001']").get_attribute("data-domain")
+        ck("register: D-SRV-001 is the nonprofit item", srv == "sanctuary_lv_nonprofit", srv)
+        gates = p.locator("[data-testid='release-gates'] tbody tr")
+        go = await gates.evaluate_all("rs => rs.map(r => r.getAttribute('data-open'))")
+        ck("register: 8 release gates, all closed", len(go) == 8 and set(go) == {"false"}, go)
+        auth = await p.locator("[data-testid='register-authorizations'] tbody tr").evaluate_all("rs => rs.map(r => r.getAttribute('data-status'))")
+        ck("register: 11 authorizations, all pending", len(auth) == 11 and set(auth) == {"pending"}, auth)
+        rt = await text(p, "section#decision-register")
+        ck("register: no approved/authorized decision wording", not re.search(r"status[^.]{0,20}\b(approved|decided)\b", rt), rt[:120])
+
+        # Phase 4: resolution matrix
+        rm = p.locator("[data-testid='resolution-matrix']")
+        ck("matrix: data-granted-any=false, completions 0", await rm.get_attribute("data-granted-any") == "false" and await rm.get_attribute("data-completions") == "0")
+        ck("matrix: 'Credentials granted: No'", (await text(p, "[data-testid='resolution-granted']")).strip() == "no")
+        crow = p.locator("[data-testid='resolution-credentials'] tbody tr")
+        cg = await crow.evaluate_all("rs => rs.map(r => [r.getAttribute('data-granted'), r.getAttribute('data-status'), r.lastElementChild.textContent.trim()])")
+        ck("matrix: 9 credential proposals, granted No, status proposed", len(cg) == 9 and all(x == ["false", "proposed", "No"] for x in cg), cg[:3])
+        ck("matrix: no credential proposal uses all_staff", "all_staff" not in " ".join(await crow.evaluate_all("rs => rs.map(r => r.children[5].textContent)")), "")
+        zr = await p.locator("[data-testid='zone-reconciliation'] tbody tr").evaluate_all("rs => rs.map(r => r.getAttribute('data-role') + ':' + r.getAttribute('data-delta'))")
+        ck("matrix: venue_liaison narrows vs v1", "venue_liaison:narrows" in zr, zr)
+        ck("matrix: 8 non-same zone deltas", sum(1 for z in zr if not z.endswith(":same")) == 8, zr)
+        fl = await p.locator("[data-testid='security-flags'] li").count()
+        ck("matrix: 11 security flags", fl == 11, fl)
+        trow = p.locator("[data-testid='resolution-training'] tbody tr")
+        tg = await trow.evaluate_all("rs => rs.map(r => [r.getAttribute('data-completion'), r.getAttribute('data-status'), r.lastElementChild.textContent.trim()])")
+        ck("matrix: 35 training proposals, completion No", len(tg) == 35 and all(x == ["false", "proposed", "No"] for x in tg), tg[:3])
+        pm = await p.locator("[data-testid='proposed-modules'] tbody tr").evaluate_all("rs => rs.map(r => r.getAttribute('data-exists'))")
+        ck("matrix: 17 proposed modules, none exist", len(pm) == 17 and set(pm) == {"false"}, pm)
+        await axe(p, "decision register + resolution matrix", [["section#decision-register"], ["section#resolution-matrix"]])
+        await axe(p, "staff taxonomy page")
 
         # Role review
         rr = await p.locator("[data-testid='role-review'] tbody tr").count()

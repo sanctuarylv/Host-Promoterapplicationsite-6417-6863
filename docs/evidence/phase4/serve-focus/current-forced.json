@@ -1,0 +1,33 @@
+{
+ "mode": "forced",
+ "attempts": 2,
+ "focused": 0,
+ "not_focused": 2,
+ "errors": 0,
+ "not_focused_with_null_lookup": 2,
+ "focused_with_found_lookup": 0,
+ "results": [
+  {
+   "attempt": 0,
+   "focused": false,
+   "active": "BODY",
+   "lookups": [
+    {
+     "found": false,
+     "t": 7280.600000023842
+    }
+   ]
+  },
+  {
+   "attempt": 1,
+   "focused": false,
+   "active": "BODY",
+   "lookups": [
+    {
+     "found": false,
+     "t": 7128.600000023842
+    }
+   ]
+  }
+ ]
+}

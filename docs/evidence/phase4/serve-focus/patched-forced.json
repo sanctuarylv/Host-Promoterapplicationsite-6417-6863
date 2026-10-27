@@ -1,0 +1,29 @@
+{
+ "mode": "forced",
+ "attempts": 3,
+ "focused": 3,
+ "not_focused": 0,
+ "errors": 0,
+ "not_focused_with_null_lookup": 0,
+ "focused_with_found_lookup": 0,
+ "results": [
+  {
+   "attempt": 0,
+   "focused": true,
+   "active": "serve-done",
+   "lookups": []
+  },
+  {
+   "attempt": 1,
+   "focused": true,
+   "active": "serve-done",
+   "lookups": []
+  },
+  {
+   "attempt": 2,
+   "focused": true,
+   "active": "serve-done",
+   "lookups": []
+  }
+ ]
+}

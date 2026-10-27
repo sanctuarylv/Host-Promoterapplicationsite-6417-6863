@@ -1,0 +1,34 @@
+== work dir /tmp/crew-compat-9mub
+  PASS dependency set identical to ea93869 (node_modules can be shared)
+  PASS previous build (ea93869) has no migration 0002
+   previous build ea93869 · current build b5f8fca
+  PASS copy migrated 0000–0002 by the current build
+== C1 previous build writes on the post-0002 schema
+  PASS previous build's backfill-v2 + seed-planning succeeded; it wrote 36 template roles
+== C2 previous build reads every table it knows
+   {"tables":43,"ok":43,"bad":[]}
+  PASS previous build: every table readable on the post-0002 schema
+== C3 current build reads rows written by the previous build
+   {"tables":44,"ok":44,"bad":[]}
+  PASS current build: every table readable (incl. rows written by the previous build)
+  PASS all 36 rows written by the previous build carry the 0002 defaults (enabled 1, required 0, canonical_role_id null)
+  PASS ops_templates rows written by the previous build: entity_id / updated_at null
+== C4 previous build's migrate on the post-0002 DB
+  PASS previous build's drizzle-kit migrate is a no-op (3 journal rows; fingerprint unchanged)
+== C5 current importer, then previous build reads again
+  PASS current importer wrote 36 canonical roles
+   {"tables":43,"ok":43,"bad":[]}
+  PASS previous build still reads every table with canonical rows present
+== C6 control: previous build on the pre-0002 schema
+  PASS copy migrated 0000–0001 only by the previous build
+   {"tables":43,"ok":43,"bad":[]}
+  PASS previous build: every table readable on its native (pre-0002) schema
+== C7 current build on the pre-0002 schema (expected to FAIL)
+   {"tables":44,"ok":41,"bad":["ops_canonical_roles: LibsqlError: SQLITE_ERROR: no such table: ops_canonical_roles","ops_template_roles: LibsqlError: SQLITE_ERROR: no such column: canonical_role_id","ops_templates: LibsqlError: SQLITE_ERROR: no such column: entity_id"]}
+  PASS current build cannot read 0002 tables/columns on the pre-0002 schema → deploy the current build only AFTER 0002
+== source untouched: 965a97820c1ba904586ec3f956fee6583eb044f6d947a3a1386ea86077919f80  /home/user/sanctuary-testdb/legacy-v1-snapshot.db
+PASS compatibility matrix: 14 checks (/tmp/crew-compat-9mub)
+  previous build × post-0002 schema: READ + WRITE OK · current build × pre-0002 schema: FAILS
+UNVERIFIED (not rehearsable locally): the same matrix on Turso; the HTTP surface of the previous build
+  (run E2E against a previous-build dev server — see docs/RELEASE_PLAN_0002_V4.md §5).
+EXIT 0
